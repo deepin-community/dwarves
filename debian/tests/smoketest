@@ -1,0 +1,33 @@
+#!/bin/sh -x
+# SPDX-License-Identifier: Apache-2.0
+# (C) 2022 Domenico Andreoli
+# Author: Domenico Andreoli <cavok@debian.org>
+
+SOME_BINARY=/usr/bin/pahole
+
+
+# smoke tested in btf-struct-with-hole
+# btfdiff
+
+codiff $SOME_BINARY $SOME_BINARY
+
+# not trivial to test (see README.ctracer)
+# ctracer
+
+dtagnames $SOME_BINARY
+
+# smoke tested in btf-struct-with-hole
+# fullcircle
+
+# tested in btf-struct-with-hole
+# pahole
+
+fullcircle $SOME_BINARY
+pdwtags $SOME_BINARY
+pfunct $SOME_BINARY
+pglobal $SOME_BINARY
+prefcnt $SOME_BINARY
+scncopy -s data -o output $SOME_BINARY
+syscse $SOME_BINARY
+
+true

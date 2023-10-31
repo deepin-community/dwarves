@@ -1,0 +1,14 @@
+usr/bin/btfdiff
+usr/bin/codiff
+usr/bin/ctracer
+usr/bin/dtagnames
+usr/bin/fullcircle
+usr/bin/pahole
+usr/bin/pdwtags
+usr/bin/pfunct
+usr/bin/pglobal
+usr/bin/prefcnt
+usr/bin/scncopy
+usr/bin/syscse
+usr/share/dwarves/runtime
+usr/share/man/man1/pahole.1

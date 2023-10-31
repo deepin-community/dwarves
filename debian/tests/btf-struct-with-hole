@@ -1,0 +1,27 @@
+#!/bin/sh -e
+# SPDX-License-Identifier: Apache-2.0
+# (C) 2022 Domenico Andreoli
+# Author: Domenico Andreoli <cavok@debian.org>
+
+# Build an object with BTF info and check that pahole outputs something
+
+if [ -z "$AUTOPKGTEST_TMP" ]; then
+	AUTOPKGTEST_TMP=$(mktemp -d)
+	trap "rm -rf $AUTOPKGTEST_TMP" 0 INT QUIT ABRT PIPE TERM
+fi
+
+cd $AUTOPKGTEST_TMP
+cat <<EOF >test.c
+struct with_hole {
+    int i;
+    char c;
+    long l;
+} _;
+EOF
+
+clang -c -g -target bpf test.c
+file test.o
+pahole test.o
+btfdiff test.o test.o
+
+objdump -h -j .BTF test.o

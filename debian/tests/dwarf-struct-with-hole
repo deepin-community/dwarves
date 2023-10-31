@@ -1,0 +1,22 @@
+#!/bin/sh -e
+# SPDX-License-Identifier: Apache-2.0
+# (C) 2022 Domenico Andreoli
+# Author: Domenico Andreoli <cavok@debian.org>
+
+# Build an object with DWARF info and analyze it
+
+if [ -z "$AUTOPKGTEST_TMP" ]; then
+	AUTOPKGTEST_TMP=$(mktemp -d)
+	trap "rm -rf $AUTOPKGTEST_TMP" 0 INT QUIT ABRT PIPE TERM
+fi
+
+gcc -g -c -o $AUTOPKGTEST_TMP/pahole.o pahole.c 2>&1
+
+cd $AUTOPKGTEST_TMP
+file pahole.o
+
+echo "The 5 biggest data structures:"
+pahole -s pahole.o | sort -k2 -nr | head -5
+
+LLVM_OBJCOPY=objcopy pahole -JV pahole.o
+objdump -h -j .BTF pahole.o
