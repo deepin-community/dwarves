@@ -1,4 +1,27 @@
-#!/usr/bin/make -f
+#! /usr/bin/make -f
+
+include /usr/share/dpkg/default.mk
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+ifeq ($(DEB_BUILD_ARCH_OS),linux)
+	LIBBPF_OPTS=-DLIBBPF_EMBEDDED=off
+else
+	LIBBPF_OPTS=-DLIBBPF_ENABLED=off
+endif
 
 %:
-	dh $@
+	dh $@ --builddirectory=debian/build
+
+override_dh_auto_configure:
+	dh_auto_configure -- -D__LIB=lib -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE="None" -DBUILD_SHARED_LIBS=off $(LIBBPF_OPTS)
+
+override_dh_auto_install:
+	$(MAKE) -C debian/build install DESTDIR=$(CURDIR)/debian/tmp
+	# remove them for now, will be included in a next upload
+	# (requires python and matplotlib)
+	rm -Rf debian/tmp/usr/share/dwarves/runtime/python debian/tmp/usr/bin/ostra-cg
+	rm -Rf debian/tmp/usr/lib debian/tmp/usr/include

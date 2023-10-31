@@ -1,5 +1,623 @@
-template-repository (1.0-1) unstable; urgency=medium
+dwarves (1.24-4.1) unstable; urgency=medium
 
-  * Initial release
+  * Non-maintainer upload.
+  * dwarves: Zero-initialize struct cu in cu__new() to prevent incorrect BTF
+    types.
+    Fixes BTF deduplication issues causing arm64 kernel size increase.
+    Thanks to Aurelien Jarno (Closes: #1033301)
 
- -- Tsic404 <liuheng@deepin.org>  Sat, 28 Jan 2023 13:46:49 +0800
+ -- Salvatore Bonaccorso <carnil@debian.org>  Tue, 02 May 2023 20:37:16 +0200
+
+dwarves (1.24-4) unstable; urgency=medium
+
+  * Backport upstream patches to support newer toolchains.
+    Closes: #1021562.
+
+ -- Domenico Andreoli <cavok@debian.org>  Sat, 10 Dec 2022 10:11:28 +0100
+
+dwarves (1.24-3) unstable; urgency=medium
+
+  * Fix libbpf build-depends-on-1-revision lintian warning.
+  * Fix smoketest configuration and dependencies.
+  * Fix `upstream-tag` for gbp push.
+  * Update standards version to 4.6.1, no changes needed.
+
+ -- Domenico Andreoli <cavok@debian.org>  Tue, 08 Nov 2022 09:39:58 +0100
+
+dwarves (1.24-2) unstable; urgency=medium
+
+  * Upload to unstable.
+  * Add libbpf-dev to the autopkgtest dependencies.
+
+ -- Domenico Andreoli <cavok@debian.org>  Mon, 07 Nov 2022 07:48:23 +0100
+
+dwarves (1.24-1) experimental; urgency=medium
+
+  * New upstream release. Closes: 1018906.
+    Changes since 1.23:
+
+    BTF encoder:
+
+    - Add support to BTF_KIND_ENUM64 to represent enumeration entries
+      with more than 32 bits.
+
+    - Support multithreaded encoding, in addition to DWARF
+      multithreaded loading, speeding up the process.
+
+      Selected just like DWARF multithreaded loading, using the
+      'pahole -j' option.
+
+    - Encode 'char' type as signed.
+
+    BTF Loader:
+
+    - Add support to BTF_KIND_ENUM64.
+
+    pahole:
+
+    - Introduce --lang and --lang_exclude to specify the language the
+      DWARF compile units were originated from to use or filter.
+
+      Use case is to exclude Rust compile units while aspects of the
+      DWARF generated for it get sorted out in a way that the kernel
+      BPF verifier don't refuse loading the BTF generated from them.
+
+    - Introduce --compile to generate compilable code in a similar
+      fashion to
+
+       bpftool btf dump file vmlinux format c > vmlinux.h
+
+      As with 'bpftool', this will notice type shadowing, i.e. multiple
+      types with the same name and will disambiguate by adding a suffix.
+
+    - Don't segfault when processing bogus files.
+
+  * Update libbpf-dev and linux-libc-dev build depends.
+  * Drop add_cmake_libbpf_enabled_option.patch, not developing it as
+    needed for #744847.
+  * Run some smoke tests on all the delivered binaries.
+
+ -- Domenico Andreoli <cavok@debian.org>  Sat, 22 Oct 2022 14:31:35 +0200
+
+dwarves (1.23-2) unstable; urgency=medium
+
+  * Upload to unstable, linux 5.17 is now available.
+  * pahole: add missing Breaks. Closes: #1008093.
+
+ -- Domenico Andreoli <cavok@debian.org>  Wed, 20 Apr 2022 06:52:21 +0200
+
+dwarves (1.23-1) experimental; urgency=medium
+
+  * New upstream release.
+    Changes since 1.22:
+
+    DWARF loader:
+
+    - Read DW_TAG_LLVM_annotation tags, associating it with variables,
+      functions, types. So far this is only being used by the BTF
+      encoder, but the pretty printer should use this as well in a
+      future release, printing these attributes when available.
+
+    - Initial support for DW_TAG_skeleton_unit, so far just suggest
+      looking up a matching .dwo file to be used instead. Automagically
+      doing this is in the plans for a future release.
+
+    - Fix heap overflow when accessing variable specification.
+
+    BTF encoder:
+
+    - Support the new BTF type tag attribute, encoding
+      DW_TAG_LLVM_annotation DWARF tags as BTF_KIND_TYPE_TAG and
+      BTF_KIND_DECL_TAG.
+
+      This allows __attribute__((btf_type_tag("tag1"))) to be used for
+      variables, functions, typedefs, so that contextual information can
+      be stored in BTF and used by the kernel BPF verifier for more checks.
+
+      The --skip_encoding_btf_type_tag option can be used to suppress this.
+
+    - Fix handling of percpu symbols on s390.
+
+    BTF loader:
+
+    - Use cacheline size to infer alignment.
+
+    btfdiff:
+
+    - Now that the BTF loader infers struct member alingment, and as that
+      is just an heuristic, suppress printing the alignment when pretty
+      printing from BTF info like is done when printing from DWARF.
+
+    pahole:
+
+    - Add --skip_missing so that we don't stop when not finding one of
+      the types passed to -C.
+
+    Pretty printer:
+
+    - Fix __attribute__((__aligned__(N)) printing alignment for struct
+      members.
+
+    - Fix nested __attribute__(__aligned__(N)) struct printing order,
+      so that rebuilding from the printed source circles back to the
+      original source code alignment semantics.
+
+    Build:
+
+    - No need to download libbpf source when using the system library
+      (libbpf-devel).
+
+    - Make python optional
+
+  * Drop pahole-manpage-fixes.patch, merged upstream.
+  * Bump build-depends libbpf-dev version to 1:0.7~.
+  * Bump build-depends linux-libc-dev version to 5.17~.
+
+ -- Domenico Andreoli <cavok@debian.org>  Tue, 08 Mar 2022 15:39:28 +0100
+
+dwarves (1.22-8) unstable; urgency=medium
+
+  * Add binutils-multiarch to the autopkgtest dependencies.
+
+ -- Domenico Andreoli <cavok@debian.org>  Wed, 02 Mar 2022 23:29:15 +0100
+
+dwarves (1.22-7) unstable; urgency=medium
+
+  * Add libdw-dev to the autopkgtest dependencies.
+
+ -- Domenico Andreoli <cavok@debian.org>  Wed, 02 Mar 2022 05:56:50 +0000
+
+dwarves (1.22-6) unstable; urgency=medium
+
+  * Update Standards-Version to 4.6.0.
+  * dwarf-struct-with-hole: build and analyze pahole.c
+  * Drop kernel build test (closes: #1005014):
+    - arch's kernel config package is just a Recommend of the source
+      package, as such it's not honoured by autopkgtest. There is no
+      way to depend on it without specifying also the kernel version.
+  * dwarf-struct-with-hole: exercise the DWARF -> BTF translation.
+  * dwarf-struct-with-hole, btf-struct-with-hole:
+    print the .BTF section header at the end of the test.
+
+ -- Domenico Andreoli <cavok@debian.org>  Tue, 01 Mar 2022 21:10:29 +0100
+
+dwarves (1.22-5) unstable; urgency=medium
+
+  * Add test: minimal Linux kernel build with BTF.
+
+ -- Domenico Andreoli <cavok@debian.org>  Fri, 04 Feb 2022 18:59:44 +0100
+
+dwarves (1.22-4) unstable; urgency=high
+
+  [Ben Hutchings]
+  * Fix inconsistent usage of HAVE_BTF and HAVE_BPF in
+    add_cmake_libbpf_enabled_option.patch. Closes: #1004311.
+
+ -- Domenico Andreoli <cavok@debian.org>  Wed, 26 Jan 2022 12:24:40 +0100
+
+dwarves (1.22-3) unstable; urgency=medium
+
+  * debian/rules: fix logic for disabling BPF support on non-linux.
+  * Rename test: pahole-struct-with-hole -> dwarf-struct-with-hole.
+  * Add test: btf-struct-with-hole.
+
+ -- Domenico Andreoli <cavok@debian.org>  Tue, 25 Jan 2022 21:58:43 +0100
+
+dwarves (1.22-2) unstable; urgency=medium
+
+  * Mark dwarves binary as Multi-Arch foreign.
+  * Update libbpf-dev Build-Depends version.
+  * Consolidate and forward patches.
+  * Add test: pahole-struct-with-hole.
+  * Disable BPF support on hurd-i386, kfreebsd-amd64 and kfreebsd-i386:
+    - add add_cmake_libbpf_enabled_option.patch
+  * Rename branch debian/master to debian/main.
+
+ -- Domenico Andreoli <cavok@debian.org>  Fri, 21 Jan 2022 19:55:31 +0100
+
+dwarves (1.22-1) unstable; urgency=low
+
+  * New upstream release.
+    Changes since 1.20:
+
+    pahole:
+    - Allow encoding BTF to a separate BTF file (detached) instead of to a new
+      ".BTF" ELF section in the file being encoded (vmlinux usually).
+    - Introduce -j/--jobs option to specify the number of threads to
+      use. Without arguments means one thread per CPU. So far used for
+      the DWARF loader, will be used as well for the BTF encoder.
+    - Show all different types with the same name, not just the first one found.
+    - Introduce sorted type output (--sort), needed with multithreaded
+      DWARF loading, to use with things like 'btfdiff' that expects
+      the output from DWARF and BTF types to be comparable using 'diff'.
+    - Stop assuming that reading from stdin means pretty printing as this broke
+      pre-existing scripts, introduce a explicit --prettify command line option.
+    - Improve type resolution for the --header command line option.
+    - Disable incomplete CTF encoder, this needs to be done using the external
+      libctf library.
+    - Do not consider the ftrace filter when encoding BTF for kernel functions.
+    - Add --kabi_prefix to avoid deduplication woes when using
+      _RH_KABI_REPLACE()
+    - Add --with_flexible_array to show just types with flexible arrays.
+
+    DWARF Loader:
+    - Multithreaded loading, requires elfutils >= 0.178.
+    - Lock calls to non-thread safe elfutils' libdw functions (dwarf_decl_file()
+      and dwarf_decl_line())
+    - Change hash table size to one that performs better with current typical
+      vmlinux files.
+    - Allow tweaking the hash table size from the command line.
+    - Stop allocating memory for strings obtained from libdw, just defer freeing
+      the Dwfl handler so that references to its strings can be safely kept.
+    - Use a frontend cache for the latest lookup result.
+    - Allow ignoring some DWARF tags when loading for encoding
+      BTF, as BTF doesn't have equivalents for things like
+      DW_TAG_inline_expansion and DW_TAG_label.
+    - Allow ignoring some DWARF tag attributes, such as DW_AT_alignment,
+      not used when encoding BTF.
+    - Do not query for non-C attributes when loading a C language CU
+      (compilation unit).
+
+    BTF encoder:
+    - Preparatory work for multithreaded encoding, the focus for 1.23.
+
+    btfdiff:
+    - Support diffing against a detached BTF file,
+      e.g.: 'btfdiff vmlinux vmlinux.btf'
+    - Support multithreaded DWARF loading, using the new pahole --sort
+      option to have the output from both BTF and DWARF sorted and thus
+      comparable via 'diff'.
+
+    Build:
+    - Support building with libc libraries lacking either obstacks or argp, such
+      as Alpine Linux's musl libc.
+    - Support systems without getconf() to obtain the data cacheline size, such
+      as musl libc.
+    - Add a buildcmd.sh for test builds, tested using the same set of containers
+      used for testing the Linux kernel perf tools.
+    - Enable selecting building with a shared libdwarves library or statically.
+    - Allow one to use the libbpf package found in distributions instead
+      of with the accompanying libbpf git submodule.
+
+    Cleanups:
+    - Address lots of compiler warnings accumulated by not using -Wextra, it'll
+      be added in the next release after allowing not to use it to build libbpf.
+    - Address covscan report issues.
+
+    Documentation:
+    - Improve the --nr_methods/-m pahole man page entry.
+    - Clarify that currently --nr_methods doesn't work together witn -C.
+
+  * Refresh patches.
+  * Drop patch no_shared_no_ebl, can do without it.
+  * Build-Depends on linux-libc-dev (>= 5.14) for BTF_KIND_FLOAT.
+  * Rename source package to dwarves. Closes: #705969.
+  * Rename binary package to pahole and add a transitional dummy package.
+  * Patch pahole manpage to fix groff's warning.
+  * Configure gbp to sign tags by default.
+  * Remove superfluous file patterns from debian/copyright.
+
+ -- Domenico Andreoli <cavok@debian.org>  Tue, 19 Oct 2021 23:31:29 +0200
+
+dwarves-dfsg (1.20-2) unstable; urgency=high
+
+  * Build-Depends on libbpf-dev on Linux builds only.
+  * Add lintian override for upstream-metadata-missing-bug-tracking,
+    upstream does not have any bug tracking system.
+  * Mark dwarves binary as Multi-Arch foreign. Closes: #989174.
+
+ -- Domenico Andreoli <cavok@debian.org>  Sun, 07 Feb 2021 22:37:57 +0100
+
+dwarves-dfsg (1.20-1) unstable; urgency=medium
+
+  * New upstream release.
+    Changes since 1.19:
+
+    BTF encoder:
+      - Improve ELF error reporting using elf_errmsg(elf_errno()).
+      - Improve objcopy error handling.
+      - Fix handling of 'restrict' qualifier, that was being treated
+        as a 'const'.
+      - Support SHN_XINDEX in st_shndx symbol indexes, to handle ELF
+        objects with more than 65534 sections, for instance, which
+        happens with kernels built with 'KCFLAGS="-ffunction-sections
+        -fdata-sections", Other cases may include when using FG-ASLR, LTO.
+      - Cope with functions without a name, as seen sometimes when
+        building kernel images with some versions of clang, when a
+        SEGFAULT was taking place.
+      - Fix BTF variable generation for kernel modules, not skipping
+        variables at offset zero.
+      - Fix address size to match what is in the ELF file being
+        processed, to fix using a 64-bit pahole binary to generate BTF
+        for a 32-bit vmlinux image.
+      - Use kernel module ftrace addresses when finding which functions
+        to encode, which increases the number of functions encoded.
+    DWARF loader:
+      - Support DW_AT_data_bit_offset
+      - DW_FORM_implicit_const in attr_numeric() and attr_offset()
+      - Support DW_TAG_GNU_call_site, its the standardized rename of
+        the previously supported DW_TAG_GNU_call_site.
+    build:
+        - Fix compilation on 32-bit architectures.
+
+  * Refresh patches.
+  * Remove ctfdwdiff and README.cross so to reuse upstream tarball as-is.
+  * Update Standards-Version to 4.5.1
+  * Update debhelper compatibility to 13:
+    - install missing binaries: btfdiff and fullcircle
+  * Add upstream metadata file
+  * gbp: set upstream tarball compression to xz
+  * Add lintian override for orig-tarball-missing-upstream-signature,
+    see #882694.
+
+ -- Domenico Andreoli <cavok@debian.org>  Sun, 07 Feb 2021 17:59:01 +0100
+
+dwarves-dfsg (1.19-1) unstable; urgency=high
+
+  * New upstream release. Closes: #978691.
+    Changes since 1.18:
+    - Support split BTF, where a main BTF file, vmlinux, can be used
+      to find types and then a kernel module, for instance, can have
+      just what is unique to it
+    - Update libbpf to get the split BTF support and use some of its
+      functions to load BTF and speed up DWARF loading and BTF encoding
+    - Support cross-compiled ELF binaries with different endianness
+    - Support showing typedefs for anonymous types, like structs,
+      unions and enums
+    - Align enumerators
+    - Workaround bugs in the generation of DWARF records for functions in
+      some gcc versions that were causing breakage in the encoding of BTF
+    - Ignore zero-sized ELF symbols instead of erroring out
+    - Handle union forward declaration properly in the BTF loader
+    - Introduce --numeric_version for use in scripts and Makefiles
+    - Try sole pfunct argument as a function name, just like pahole
+      with type names
+    - Speed up pfunct using some of the load techniques used in pahole
+    - Discard CUs after BTF encoding as they're not used anymore,
+      greatly reducing memory usage and speeding up vmlinux BTF encoding
+    - Revamp how per-CPU variables are encoded in BTF
+    - Include BTF info for static functions
+    - Use BTF's string APIs for strings management, greatly improving
+      performance over the tsearch()
+    - Increase size of DWARF lookup hash table, shaving off about 1
+      second out of about 20 seconds total for Linux BTF dedup
+    - Stop BTF encoding when errors are found in some DWARF CU
+    - Implement --packed, to show just packed structures, for instance,
+      here are the top 5 packed data structures in the Linux kernel
+    - Fix bug in distros such as OpenSUSE:15.2 where DW_AT_alignment
+      isn't defined
+
+  * Refresh patches.
+
+ -- Domenico Andreoli <cavok@debian.org>  Mon, 04 Jan 2021 23:33:54 +0100
+
+dwarves-dfsg (1.18-1) unstable; urgency=medium
+
+  [ Domenico Andreoli ]
+  * New upstream release (changes since 1.17):
+    - Use type information to pretty print raw data from stdin, all
+      documented in the man pages, further information in the csets.
+    - Store percpu variables in vmlinux BTF. This can be disabled when
+      debugging kernel features being developed to use it.
+    - pahole now should be segfault free when handling gdb test suit
+      DWARF files, including ADA, FORTRAN, rust and dwp compressed files,
+      the later being just flatly refused, that got left for v1.19.
+    - Bail out on partial units for now, avoiding segfaults and providing
+      warning to user, hopefully will be addressed in v1.19.
+      Closes: #977715.
+  * Update Homepage link. Closes: #978708.
+  * Drop debian/compat in favor of Build-Depends: debhelper-compat.
+  * Fix typo in pahole manual page.
+  * Fix escaping in pahole manual page.
+  * Fix debian/copyright lintian errors.
+  * Revert test to a superficial pahole --version until partial units
+    become supported.
+
+  [ Luca Boccassi ]
+  * Use packaged libbpf instead of the statically linked. Closes: #979105.
+
+ -- Domenico Andreoli <cavok@debian.org>  Sun, 03 Jan 2021 13:41:31 +0100
+
+dwarves-dfsg (1.17-1) unstable; urgency=low
+
+  * New upstream release (changes since 1.16):
+
+    BTF loader:
+     - Support raw BTF as available in /sys/kernel/btf/vmlinux.
+
+    pahole:
+     - When the sole argument passed isn't a file, take it as a class name:
+     - Do not require a class name to operate without a file name.
+     - Make --find_pointers_to consider unions:
+     - Make --contains and --find_pointers_to honour --unions
+     - Add support for finding pointers to void:
+     - Make --contains and --find_pointers_to to work with base types:
+     - Make --contains look for more than just unions, structs:
+     - Consider unions when looking for classes containing some class:
+     - Introduce --unions to consider just unions:
+     - Fix -m/--nr_methods - Number of functions operating on a type pointer
+
+    man-pages:
+     - Add section about --hex + -E to locate offsets deep into sub structs.
+     - Add more information about BTF.
+     - Add some examples.
+
+  * Update to Standards-Version 4.5.0:
+    - Drop get-orig-source rules target
+    - Add Rules-Requires-Root: no
+  * Update debhelper compat to 12.
+
+ -- Domenico Andreoli <cavok@debian.org>  Sun, 19 Apr 2020 20:25:33 +0200
+
+dwarves-dfsg (1.16-1) unstable; urgency=low
+
+  * New upstream release (changes since 1.15):
+    - Preserve and encode exported functions as BTF_KIND_FUNC
+    - Add support for BTF_KIND_FUNC
+    - Account inline type __aligned__ member types for spacing
+    - Fix alignment of class members that are structs/enums/unions
+    - Fixup handling classes with no members, solving a NULL deref
+    - Avoid infinite loop trying to determine type with static data
+      member of its own type.
+    - type->type == 0 is void, fix --compile for that
+    - Print DW_TAG_subroutine_type as well
+    - Fix ptr_table__add_with_id() handling of pt->nr_entries, covering
+      how BTF variables IDs are encoded
+    - Allow passing the format path specifier, to use with BTF
+    - Fixup issues pointed out by various coverity reports
+
+ -- Domenico Andreoli <cavok@debian.org>  Wed, 15 Jan 2020 18:02:11 +0100
+
+dwarves-dfsg (1.15-2) unstable; urgency=low
+
+  * Fix hardening-no-bindnow.
+  * Fix debian-watch-uses-insecure-uri.
+  * Fix debian-watch-does-not-check-gpg-signature.
+  * Fix priority-extra-is-replaced-by-priority-optional.
+  * Revert to dwarves-dbgsym for tests execution but skip the test if
+    it's not installable (i.e. on transition to testing).
+
+ -- Domenico Andreoli <cavok@debian.org>  Mon, 23 Sep 2019 18:21:35 +0200
+
+dwarves-dfsg (1.15-1) unstable; urgency=medium
+
+  [ Theodore Y. Ts'o ]
+  * New upstream release (changes since 1.12, closes: #931142):
+    - Add support for BTF encoding which is a much more compact way
+      of encoding C type information.  It is derived from CTF (Compact
+      C-Type format) and is designed for use with eBPF.
+    - Add initial support for the DWARF DW_TAG_partial_unit
+    - Improve support for pretty-printing unions
+    - Teach pahole to show where a struct was used, via the -I option
+    - Use the running kernel by default when no file name is passed
+    - Improve man pages
+    - Support new BTF deduplication algorithm found the Linux kernel's
+      libbpf library, which allows type information for the kernel to
+      be stored in roughly 1% of the space.
+    - Add a new utility, btfdiff, which compares the pretty-printed
+      type information between two kernel images.
+    - Teach pahole to use the BTF information to pretty print structures
+      using the BTF information using "pahole -F btf", which is much faster
+      than using the Dwarf information.
+    - Infer the __packed__ attribute for structures without alignment holes
+      and which violate the natural types' alignment requirements.
+    - Support DWARF5's DW_AT_alignment tag
+    - Add a --compile option to pfunct which produces compileable
+      output for function prototypes in an object file.
+    - Miscellaneous bug fixes
+
+  [ Domenico Andreoli ]
+  * Autopkgtest on libc-bin-dbgsym instead of dwarves-dbgsym. Closes: #923717.
+  * Fix typo in description of no_shared_no_ebl.
+
+ -- Domenico Andreoli <cavok@debian.org>  Tue, 30 Jul 2019 16:58:55 +0200
+
+dwarves-dfsg (1.12-2) unstable; urgency=medium
+
+  * Convert to dh.
+  * Fix Homepage and Vcs-Git.
+  * Fix depends on debhelper >= 10.
+  * Remove trailing spaces from the Debian changelog.
+  * Update copyright to copyright-format/1.0. Closes: #919356.
+
+ -- Domenico Andreoli <cavok@debian.org>  Wed, 27 Feb 2019 18:09:08 +0100
+
+dwarves-dfsg (1.12-1) unstable; urgency=medium
+
+  [ Domenico Andreoli ]
+  * New upstram release. Closes: #908563, #779809, #693096,
+  * Migrate to salsa.d.o and enable CI. Closes: #908564.
+  * Migrate to DEP-14.
+  * Drop patch DW_TAG_mutable_type (merged upstream).
+  * Refresh patch no_shared_no_ebl.
+  * Improve package description. Closes: #914527.
+  * Add test executing pahole on itself.
+  * Set debhelper compatibility level to 10.
+  * Start using dh_strip_nondeterminism.
+
+  [ Helmut Grohne ]
+  * Let dh_auto_configure pass cross flags to cmake. Closes: #903506.
+
+ -- Domenico Andreoli <cavok@debian.org>  Mon, 19 Nov 2018 18:11:43 +0100
+
+dwarves-dfsg (1.10-2.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+
+  [ Robie Basak ]
+  * Fix FTBFS with newer elfutils. (Closes: #764484)
+
+ -- James Cowgill <jcowgill@debian.org>  Thu, 24 Mar 2016 13:01:08 +0000
+
+dwarves-dfsg (1.10-2) unstable; urgency=low
+
+  * Make sure CMake uses standard library location if host has no
+    MultiArch. Closes: #665054.
+
+ -- Thomas Girard <thomas.g.girard@free.fr>  Sat, 16 Jun 2012 10:50:15 +0200
+
+dwarves-dfsg (1.10-1) unstable; urgency=low
+
+  * New upstram release.
+  * Record patches using dpkg-source --commit. Closes: #643102.
+  * Use MultiArch elfutils location. Closes: #665054.
+  * debian/control: change homepage to new location.
+  * debian/watch: change source tarball location.
+  * debian/control: bump Standards-Version: to 3.9.3. No changes needed.
+  * debian/rules: add missing build-arch and build-indep targets.
+
+ -- Thomas Girard <thomas.g.girard@free.fr>  Fri, 08 Jun 2012 20:55:03 +0200
+
+dwarves-dfsg (1.9-1) unstable; urgency=low
+
+  * Acknowledge 1.3-1.1 NMU (thanks to Michael Banck) and resynch with
+    Ubuntu release (thanks Bhavani Shankar).
+  * New upstream release:
+    - patch from 1.3-1.1ubuntu1 no longer needed.
+    - new manpage for pahole.
+    - new program scncopy to copy ELF sections.
+    - fixes crash when encountering a pointer in a struct. Closes: #513573.
+    - recognizes C++ classes. Closes: #621530.
+    - no longer FTBFS with gcc 4.6. Closes: #625158.
+  * Remove libebl detection and use. Closes: #534529.
+  * debian/control:
+    - bump debhelper level to 7.
+    - add Vcs-Git: and Vcs-Browser:
+    - bump Standards-Version: to 3.9.2.
+    - add zlib1g-dev build dependency.
+  * debian/copyright: add missing copyright holders.
+  * debian/rules:
+    - allow to be compiled twice in a row.
+    - ensure package building aborts if a program is not installed.
+    - use dh_prep instead of dh_clean -k.
+  * debian/dwarves.install:
+    - include syscse. Closes: #517180.
+    - add ctracer. See README.ctracer for information on how to use it.
+  * Switch to dpkg-source 3.0 (quilt) format.
+  * Fix many lintian warnings.
+
+ -- Thomas Girard <thomas.g.girard@free.fr>  Mon, 02 May 2011 19:34:31 +0200
+
+dwarves-dfsg (1.3-1.1ubuntu1) maverick; urgency=low
+
+  * dwarwes-dfsg-1.3/src/dwarves.c:
+    + Add missing headers to fix undefined reference to `S_IS*' linker
+      error with gcc 4.5 LP: #602367
+
+ -- Bhavani Shankar <bhavi@ubuntu.com>  Tue, 06 Jul 2010 22:20:38 +0530
+
+dwarves-dfsg (1.3-1.1) unstable; urgency=low
+
+  * Non-maintainer upload.
+  * Applied patch by Peter Green (Closes: #534084)
+    + cmake/modules/FindDWARF.cmake: Removed libebl support.
+    + debian/control (Build-Depends): Removed libebl-dev.
+
+ -- Michael Banck <mbanck@debian.org>  Sun, 29 Nov 2009 12:45:58 +0100
+
+dwarves-dfsg (1.3-1) unstable; urgency=low
+
+  * Initial release, based on Domenico Andreoli <cavok@debian.org> work.
+    Closes: #436522.
+
+ -- Thomas Girard <thomas.g.girard@free.fr>  Mon, 24 Dec 2007 10:14:17 +0100

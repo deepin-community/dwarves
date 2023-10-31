@@ -1,0 +1,6 @@
+Tests: btf-struct-with-hole, dwarf-struct-with-hole
+Depends: @, gcc, clang, file, binutils-multiarch, libdw-dev, libbpf-dev (>= 1:1.0.1-1)
+
+Tests: smoketest
+Depends: pahole-dbgsym
+Restrictions: skip-not-installable, superficial, allow-stderr

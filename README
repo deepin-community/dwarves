@@ -1,0 +1,36 @@
+Build instructions:
+
+1. install cmake
+2. mkdir build
+3. cd build
+4. cmake -D__LIB=lib ..
+5. make install
+
+cmake Options:
+  -DBUILD_SHARED_LIBS
+    By default SHARED libraries are created and applications are linked to it.
+    Use -DBUILD_SHARED_LIBS=OFF while invoking cmake to create STATIC libraries
+    and link applications to it.
+
+    Ex. cmake -D__LIB=lib -DBUILD_SHARED_LIBS=OFF ..
+
+  -DCMAKE_INSTALL_PREFIX
+    Default is to install to /usr/local, use -DCMAKE_INSTALL_PREFIX=
+    when invoking cmake to specify another install location.
+
+Known to work scenarios:
+
+Mandriva Cooker:
+
+cmake 2.4.5-1mdv2007.1
+libelfutils1-devel 0.123-1mdv2007.1
+
+Debian Unstable:
+
+cmake 2.4.5-1
+libdw-dev 0.123-2
+
+Fedora Core 6:
+
+cmake 2.4.5-2.fc6
+elfutils-devel 0.126-1.fc6
