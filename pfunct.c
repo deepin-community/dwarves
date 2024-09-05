@@ -53,7 +53,7 @@ struct fn_stats {
 
 static struct fn_stats *fn_stats__new(struct tag *tag, const struct cu *cu)
 {
-	struct fn_stats *stats = malloc(sizeof(*stats));
+	struct fn_stats *stats = zalloc(sizeof(*stats));
 
 	if (stats != NULL) {
 		const struct function *fn = tag__function(tag);
@@ -275,15 +275,17 @@ static bool function__filter(struct function *function, struct cu *cu)
 	return false;
 }
 
-static int cu_unique_iterator(struct cu *cu, void *cookie __maybe_unused)
+static int cu_unique_iterator(struct cu *cu, void *cookie)
 {
+	bool is_btf = cookie != NULL;
+
 	cu__account_inline_expansions(cu);
 
 	struct function *pos;
 	uint32_t id;
 
 	cu__for_each_function(cu, id, pos)
-		if (!function__filter(pos, cu))
+		if (is_btf || !function__filter(pos, cu))
 			fn_stats__add(function__tag(pos), cu);
 	return 0;
 }
@@ -658,7 +660,7 @@ static error_t pfunct__options_parser(int key, char *arg,
 	case 'a': addr = strtoull(arg, NULL, 0);
 		  conf_load.get_addr_info = true;	 break;
 	case 'b': expand_types = true;
-		  type_emissions__init(&emissions);	 break;
+		  type_emissions__init(&emissions, &conf);	 break;
 	case 'c': class_name = arg;			 break;
 	case 'f': function_name = arg;			 break;
 	case 'F': conf_load.format_path = arg;		 break;
@@ -689,7 +691,7 @@ static error_t pfunct__options_parser(int key, char *arg,
 	case ARGP_no_parm_names: conf.no_parm_names = 1; break;
 	case ARGP_compile:
 		  expand_types = true;
-		  type_emissions__init(&emissions);
+		  type_emissions__init(&emissions, &conf);
 		  compilable_output = true;
 		  conf.no_semicolon = true;
 		  conf.strip_inline = true;
@@ -758,7 +760,8 @@ try_sole_arg_as_function_name:
 	}
 
 
-	cus__for_each_cu(cus, cu_unique_iterator, NULL, NULL);
+	bool is_btf = conf_load.format_path && strcasecmp(conf_load.format_path, "btf") == 0;
+	cus__for_each_cu(cus, cu_unique_iterator, is_btf ? (void *)1 : NULL, NULL);
 
 	if (addr) {
 		struct cu *cu;

@@ -1,4 +1,4 @@
-00-store-the-CU-being-processed-to-avoid-changing-many-functions.patch
-01-record-if-a-CU-has-a-DW_TAG_unspecified_type.patch
-02-encode-DW_TAG_unspecified_type-returning-routines-as-void.patch
-03-dwarves-Zero-initialize-struct-cu-in-cu__new-to-prev.patch
+00-core-Initialize-cu_node-with-INIT_LIST_HEAD.patch
+01-dwarf_loader-Add-missing-cus__add-to-cus__merge_and_process_cu.patch
+02-fix-btf_loader-spelling-error.patch
+03-reformat-long-line-in-pahole-manpage.patch

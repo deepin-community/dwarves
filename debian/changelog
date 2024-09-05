@@ -1,3 +1,255 @@
+dwarves (1.27-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Drop Thomas Girard from the maintainers. Closes: #1065134.
+  * Add 00-core-Initialize-cu_node-with-INIT_LIST_HEAD.patch
+  * Add 01-dwarf_loader-Add-missing-cus__add-to-cus__merge_and_process_cu.patch
+  * Add 02-fix-btf_loader-spelling-error.patch
+  * Add 03-reformat-long-line-in-pahole-manpage.patch
+  * Clean some files before the build; they are tagged in git but missing
+    from MANIFEST and therefore not included in the upstream tarball:
+    - PKG-MAINTAINERS
+    - README.cross
+    - ctfdwdiff
+    - tests/reproducible_build.sh
+
+ -- Domenico Andreoli <cavok@debian.org>  Thu, 20 Jun 2024 18:07:31 +0200
+
+dwarves (1.26-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Update BD to pkgconf.
+  * Update standards version to 4.7.0, no changes needed.
+  * Fix copyright year for debian/* files.
+
+  Changes since 1.25:
+  [ Arnaldo Carvalho de Melo ]
+  * core: Conditionally define language encodings.
+  * btf: Fix building with system libbpf.
+  * pahole: Honour --compile when -C is used.
+  * emit: Check if disambiguated struct/enum/union name was already
+    emitted in a previous CU.
+  * emit: Don't mark a enum with nr_members == 0 as printed, its just
+    a fwd decl.
+
+  [ David Lamparter ]
+  * dwarves: support DW_TAG_atomic_type.
+
+  [ Arnaldo Carvalho de Melo ]
+  * pahole: Allow --compile to work with DWARF in addition to with BTF.
+  * dwarf_loader: Support DW_TAG_label outside DW_TAG_lexblock.
+  * pahole: Add "btf" to the format-path option man page.
+  * pahole: Support '--lang/--lang_exclude=asm'
+  * btf_encoder: Add extra debug info for unsupported DWARF tags.
+  * core: Print more info on tag__assert_search_result()
+  * fprintf: Emit "_Atomic" modifiers for DW_TAG_atomic_type.
+  * btf_encoder: Store the CU being processed to avoid changing many functions.
+  * core: Add DW_TAG_unspecified_type to tag__is_tag_type() set.
+  * core: Record if a CU has a DW_TAG_unspecified_type.
+  * btf_encoder: Encode DW_TAG_unspecified_type returning routines as void.
+  * emit: Emit typedefs for atomic_ prefixed base types.
+  * emit: Optionally pass a conf_fprintf struct to type_emissions__init.
+  * emit: Allow skip emitting the atomic typedefs.
+  * pahole: Allow skipping the emission of atomic typedefs.
+  * fprintf: Move the "typedef " invariant printf to the start of
+    typedef__fprintf()
+  * fprintf: Support _Atomic typedefs.
+  * emit: Support DW_TAG_atomic_type when emitting definitions for a typedef.
+
+  [ Alan Maguire ]
+  * dwarves: Zero-initialize struct cu in cu__new() to prevent incorrect
+    BTF types.
+
+  [ Arnaldo Carvalho de Melo ]
+  * core: Use zalloc() to make the code more robust.
+  * pahole: Use zalloc() to make the code more robust.
+  * pfunct: Use zalloc() to make the code more robust.
+  * dwarf_loader: DW_TAG_inlined_subroutine needs recoding by
+    DW_AT_abstract_origin.
+  * core: Introduce base_type__language_defined()
+  * pahole: Use type__fprintf() directly for --compile.
+  * pahole: Set libbpf debug printer in -V mode.
+
+  [ Sedat Dilek ]
+  * dwarf_loader: Sync with LINUX_ELFNOTE_LTO_INFO macro from kernel.
+
+  [ Alan Maguire ]
+  * pahole: Sync with libbpf-1.1.
+  * dwarf_loader: Help spotting functions with optimized-out parameters.
+
+  [ Arnaldo Carvalho de Melo ]
+  * CMakeList.txt: Bump version to the upcoming 1.25 release, not out
+    of the door yet.
+
+  [ Alan Maguire ]
+  * btf_encoder: Ensure ELF function representation is fully initialized.
+
+  [ Arnaldo Carvalho de Melo ]
+  * core: Check that we're adding DW_TAG_member sorted by byte offset.
+  * dwarf_loader: Fix sorting of Rust structs.
+  * btfdiff: Exclude Rust CUs since those are not yet being converted
+    to BTF on the Linux kernel.
+
+  [ Alan Maguire ]
+  * dwarf_loader: Mark functions that do not use expected registers for params.
+  * btf_encoder: Exclude functions with unexpected param register use
+    not optimizations.
+  * pahole: Update descriptions for btf_gen_optimized,
+    skip_encoding_btf_inconsistent_proto.
+  * pahole: Update man page for options also in line with changes made
+    to skip logic.
+  * dwarf_loader: Fix detection of struct parameters.
+  * dwarf_loader: Fix parameter location retrieval for location lists
+  * dwarf_loader: Only mark parameter as using an unexpected register
+    when it does.
+
+  [ Arnaldo Carvalho de Melo ]
+  * CMakeLists.txt: Call cmake_minimum_required() before project()
+  * fprintf: Support DW_TAG_LLVM_annotation in dwarf_tag_name()
+
+  [ Eduard Zingerman ]
+  * dwarf_loader: Fix for BTF id drift caused by adding unspecified types.
+
+  [ Alan Maguire ]
+  * fprintf: Generalize function prototype print to support passing conf
+  * fprintf: Support skipping modifier.
+  * btf_encoder: Compare functions via prototypes not parameter names.
+
+  [ Eduard Zingerman ]
+  * fprintf: Correct names for types with btf_type_tag attribute.
+  * btf_loader: A hack for BTF import of btf_type_tag attributes.
+  * fprintf: Fix `*` not being printed for pointers with btf_type_tag.
+
+  [ Arnaldo Carvalho de Melo ]
+  * pahole: Prep 1.25.
+  * dwarf_loader: Add support for DW_TAG_constant.
+  * fprintf: Add DW_TAG_constant pretty printer (constant__fprintf)
+  * pdwtags: Print DW_TAG_constant tags.
+  * dwarf_loader: DW_TAG_subroutine_type may have a DW_AT_byte_size.
+
+  [ Viktor Malik ]
+  * spec: Migrate license to a SPDX standardized one.
+
+  [ Arnaldo Carvalho de Melo ]
+  * README: Remove old comments about ancient distros and add 'git submodule'
+    instruction.
+  * pahole: Don't keep structs in multiple RB trees.
+
+  [ Alan Maguire ]
+  * btf_encoder, pahole: Move BTF encoding options into 'struct conf_load'
+  * dwarves: Move ARRAY_SIZE() to dwarves.h
+  * pahole: Add --btf_features support.
+  * pahole: Add --supported_btf_features.
+  * pahole: Add --btf_features_strict to reject unknown BTF features
+
+  [ Arnaldo Carvalho de Melo ]
+  * CMakeList.txt: Bump version to the upcoming 1.26 release, not out
+    of the door yet.
+  * pahole: Make sure the features string is NUL terminated.
+  * fprintf: Introduce struct to account holes in class member types.
+  * fprintf: Introduce method to print info about type of last member.
+  * fprintf: Print number of holes in class member types.
+  * fprintf: Print number of bit holes in class member types.
+  * fprintf: Print number of bit paddings in class member types.
+  * fprintf: When expanding types do it for enums as well.
+  * fprintf: Add missing space after expanding a structure for a struct member.
+  * fprintf: When expanding types do it for struct typedefs as well.
+  * fprintf: Factor out the fprintf of a union declaration, for reuse.
+  * fprintf: When expanding types do it for union typedefs as well.
+  * btfdiff: Parallelize loading BTF and DWARF.
+  * btf_loader: Fix loading of 32-bit signed enums.
+  * btfdiff: Do type expansion to cover "private" types and enumerations.
+  * core: Introduce cu__for_each_enumeration()
+  * pahole: Do not use -1 to mean that a enumerator wasn't found in
+    an enumeration.
+  * pahole: Implement --contains_enumerator=ENUMERATOR_NAME.
+  * pahole: Improve error message when not resolving symbolic names in filters.
+  * pahole: Wait to find a DWARF CU with both the class and the type_enum.
+  * dwarf_loader: Print the line number in addition to the function
+    when not finding the abstract origin.
+  * syscse: cus__load_files() requires a non NULL conf_load.
+  * dtagnames: cus__load_files() requires a non NULL conf_load.
+  * prefcnt: cus__load_files() requires a non NULL conf_load.
+  * NEWS: Add missing list of changes for v1.25.
+  * pahole: Prep 1.26.
+
+ -- Domenico Andreoli <cavok@debian.org>  Wed, 15 May 2024 18:10:44 +0200
+
+dwarves (1.25-0.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * New upstream release.
+    Changes since 1.24:
+
+    DWARF loader:
+
+    - Support for DW_TAG_unspecified_type more generally, that in binutils
+      2.40 is used for assembly functions, resulting in BTF encoding problems
+      when building the Linux kernel.
+
+    - Make sure struct member offsets are in ascending order. This is part of
+      the set of changes to support encoding BTF for Rust for use with the
+      Linux kernel, where the BTF verifier considers invalid offset unordered
+      struct members.
+
+    - Support C atomic types (DW_TAG_atomic_type), that are not used in the
+      Linux kernel but is present in user space components such as Open
+      VSwitch.
+
+    BTF loader:
+
+    - Initial support for DW_TAG_LLVM_annotation, used for BTF type tags, to
+      encode things like __rcu, __user annotations in the Linux kernel. This
+      is still in flux with changes in how these are encoded that resulted
+      from the discussion to support this in gcc in addition to in clang,
+      where it was first designed.
+
+    BTF encoder:
+
+    - Exclude functions with the same name (static functions in different
+      CUs), inconsistent prototypes or not following calling convention.
+
+    - Allow generation of BTF for optimized functions, those that end with a
+      .isra* suffix (inter procedural scalar replacement of aggregates) or
+      .constprop* (constant propagation).
+
+    Pretty printer:
+
+    - For now the DW_TAG_LLVM_annotation tags are being suppressed, so the
+      output from BTF and DWARF matches, further work is planned to support it
+      so that the output matches the original source code and can be
+      recompilable, resulting in the same DWARF info.
+
+    - Support C atomic types, allowing the generation of source code that can
+      be compiled with resulting DWARF info matching the original source code.
+
+    pahole:
+
+    - Support --lang=/--lang_exclude=asm, the DW_LANG_ define for assembly is
+      out of order, special case it to support asking for CUs written in
+      assembly to be selected or excluded.
+
+    - Support suppressing the atomic type modifiers/attributes.
+
+    - Allow filtering out functions optimized by the compiler, where the
+      calling convention isn't the one expected by BPF or arguments are
+      optimized out.
+
+    - Support --compile from DWARF in addition to from BTF, this allows user
+      space components such as Open VSwitch to use pahole to generate
+      compilable code for its data structures.
+
+    btfdiff:
+
+    - Exclude RUST CUs, as those are not yet being BTF encoded.
+
+  * Drop patches already applied upstream:
+    - 00-store-the-CU-being-processed-to-avoid-changing-many-functions.patch
+    - 01-record-if-a-CU-has-a-DW_TAG_unspecified_type.patch
+    - 02-encode-DW_TAG_unspecified_type-returning-routines-as-void.patch
+
+ -- Andrea Righi <andrea.righi@canonical.com>  Wed, 03 May 2023 09:24:39 +0200
+
 dwarves (1.24-4.1) unstable; urgency=medium
 
   * Non-maintainer upload.

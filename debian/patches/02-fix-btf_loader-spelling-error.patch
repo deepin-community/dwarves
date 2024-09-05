@@ -1,0 +1,23 @@
+From: Domenico Andreoli <domenico.andreoli@linux.com>
+
+Fix spelling error.
+
+Signed-off-by: Domenico Andreoli <domenico.andreoli@linux.com>
+
+---
+ btf_loader.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Index: b/btf_loader.c
+===================================================================
+--- a/btf_loader.c
++++ b/btf_loader.c
+@@ -473,7 +473,7 @@ static int process_decl_tag(struct cu *c
+ 
+ 	if (tag->attribute != NULL) {
+ 		char bf[128];
+-		printf("WARNING: still unsuported BTF_KIND_DECL_TAG(%s) for %s already with attribute (%s), ignoring\n",
++		printf("WARNING: still unsupported BTF_KIND_DECL_TAG(%s) for %s already with attribute (%s), ignoring\n",
+ 		       attribute, tag__name(tag, cu, bf, sizeof(bf), NULL), tag->attribute);
+ 	} else {
+ 		tag->attribute = attribute;

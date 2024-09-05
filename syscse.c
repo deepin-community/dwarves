@@ -18,6 +18,12 @@
 static const char *prefix = "sys_";
 static size_t prefix_len = 4;
 
+static struct conf_fprintf conf;
+
+static struct conf_load conf_load = {
+        .conf_fprintf = &conf,
+};
+
 static bool filter(struct function *f)
 {
 	if (f->proto.nr_parms != 0) {
@@ -64,7 +70,7 @@ static void emit_wrapper(struct function *f, struct cu *cu)
 		const type_id_t type_id = parm->tag.type;
 		struct tag *type = cu__type(cu, type_id);
 
-		tag__assert_search_result(type);
+		tag__assert_search_result(type, parm->tag.tag, parameter__name(parm));
 		if (type->tag == DW_TAG_base_type) {
 			struct base_type *bt = tag__base_type(type);
 			char bf[64];
@@ -156,7 +162,7 @@ int main(int argc, char *argv[])
                 argp_help(&argp, stderr, ARGP_HELP_SEE, argv[0]);
                 return EXIT_FAILURE;
 	}
-	err = cus__load_files(cus, NULL, argv + remaining);
+	err = cus__load_files(cus, &conf_load, argv + remaining);
 	if (err != 0) {
 		cus__fprintf_load_files_err(cus, "syscse", argv + remaining, err, stderr);
 		return EXIT_FAILURE;

@@ -122,6 +122,14 @@ the example provided it will use the BTF info if available, otherwise will
 look for a DWARF file matching the running kernel build-id.
 
 .TP
+.B \-\-skip_emitting_atomic_typedefs
+Do not emit 'typedef _Atomic int atomic_int' & friends when used with options
+like --compile. Use it if the compiler provides these already, as of circa
+2022 with gcc 12.2.1 those are not encoded in DWARF so to generate compilable
+code we need emit those typedefs for the atomic types used in the data structures
+being emitted from debugging information.
+
+.TP
 .B \-\-count=COUNT
 Pretty print the first COUNT records from input.
 
@@ -137,8 +145,8 @@ offset from the beginning of a struct is.
 .TP
 .B \-F, \-\-format_path
 Allows specifying a list of debugging formats to try, in order. Right now this
-includes "ctf" and "dwarf". The default format path used is equivalent to
-"-F dwarf,ctf".
+includes "btf", "ctf" and "dwarf". The default format path used is equivalent to
+"-F dwarf,btf,ctf".
 
 .TP
 .B \-\-hashbits=BITS
@@ -171,6 +179,21 @@ Show the struct layout at each reorganization step.
 .TP
 .B \-i, \-\-contains=CLASS_NAME
 Show classes that contains CLASS_NAME.
+
+.TP
+.B \-\-contains_enumerator=ENUMERATOR_NAME
+Show enumeration that contains ENUMERATOR_NAME.
+.PP
+.nf
+  $ pahole --contains_enumerator S_VERSION
+  enum file_time_flags {
+	  S_ATIME   = 1,
+	  S_MTIME   = 2,
+	  S_CTIME   = 4,
+	  S_VERSION = 8,
+  }
+  $
+.fi
 
 .TP
 .B \-a, \-\-anon_include
@@ -222,6 +245,10 @@ Do not encode enum64 in BTF.
 Do not encode type tags in BTF.
 
 .TP
+.B \-\-skip_encoding_btf_inconsistent_proto
+Do not encode functions with multiple inconsistent prototypes or unexpected register use for their parameters, where the registers used do not match calling conventions.
+
+.TP
 .B \-j, \-\-jobs=N
 Run N jobs in parallel. Defaults to number of online processors + 10% (like
 the 'ninja' build system) if no argument is specified.
@@ -254,8 +281,59 @@ Allow producing BTF_KIND_FLOAT entries in systems where the vmlinux DWARF
 information has float types.
 
 .TP
+.B \-\-btf_gen_optimized
+Generate BTF for functions with optimization-related suffixes (.isra, .constprop).
+
+.TP
 .B \-\-btf_gen_all
 Allow using all the BTF features supported by pahole.
+
+.TP
+.B \-\-btf_features=FEATURE_LIST
+Encode BTF using the specified feature list, or specify 'default' for all standard features supported.  This option can be used as an alternative to using multiple BTF-related options, and 'default' represents the standard set of BTF features that are in use for kernel BTF generation, so is useful as a shortcut for testing the latest set of standard features.  However kernel builds will call out specific features rather than using 'default' to ensure that the desired features are enabled regardless of pahole version and associated 'default' set.  Supported standard features are
+
+.nf
+	encode_force       Ignore invalid symbols when encoding BTF; for example
+	                   if a symbol has an invalid name, it will be ignored
+	                   and BTF encoding will continue.
+	var                Encode variables using BTF_KIND_VAR in BTF.
+	float              Encode floating-point types in BTF.
+	decl_tag           Encode declaration tags using BTF_KIND_DECL_TAG.
+	type_tag           Encode type tags using BTF_KIND_TYPE_TAG.
+	enum64             Encode enum64 values with BTF_KIND_ENUM64.
+	optimized_func     Encode representations of optimized functions
+	                   with suffixes like ".isra.0".
+	consistent_func    Avoid encoding inconsistent static functions.
+	                   These occur when a parameter is optimized out
+	                   in some CUs and not others, or when the same
+	                   function name has inconsistent BTF descriptions
+	                   in different CUs.
+.fi
+
+Supported non-standard features (not enabled for 'default')
+
+.nf
+	reproducible_build Ensure generated BTF is consistent every time;
+	                   without this parallel BTF encoding can result in
+	                   inconsistent BTF ids.
+	decl_tag_kfuncs    Inject a BTF_KIND_DECL_TAG for each discovered kfunc.
+.fi
+
+So for example, specifying \-\-btf_encode=var,enum64 will result in a BTF encoding that (as well as encoding basic BTF information) will contain variables and enum64 values.
+
+.fi
+
+If one wants to add an extra feature to the set of standard ones, the '+' prefix can be used, i.e.:
+\-\-btf_features=+reproducible_build will add all default features plus the 'reproducible_build' extra
+feature.
+
+.TP
+.B \-\-btf_features_strict
+Identical to \-\-btf_features above, but pahole will exit if it encounters an unrecognized feature.
+
+.TP
+.B \-\-supported_btf_features
+Show set of BTF features supported by \-\-btf_features option and exit.  Useful for checking which features are supported since \-\-btf_features will not emit an error if an unrecognized feature is specified.
 
 .TP
 .B \-l, \-\-show_first_biggest_size_base_type_member
@@ -378,7 +456,7 @@ Only process compilation units built from source code written in the specified l
 
 Supported languages:
 
-  ada83, ada95, bliss, c, c89, c99, c11, c++, c++03, c++11, c++14, cobol74,
+  ada83, ada95, asm, bliss, c, c89, c99, c11, c++, c++03, c++11, c++14, cobol74,
   cobol85, d, dylan, fortran77, fortran90, fortran95, fortran03, fortran08,
   go, haskell, java, julia, modula2, modula3, objc, objc++, ocaml, opencl,
   pascal83, pli, python, renderscript, rust, swift, upc

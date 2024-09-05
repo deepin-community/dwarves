@@ -108,6 +108,7 @@ static struct base_type *base_type__new(const char *name, uint32_t attrs,
 		bt->is_bool = attrs & BTF_INT_BOOL;
 		bt->name_has_encoding = false;
 		bt->float_type = float_type;
+		INIT_LIST_HEAD(&bt->node);
 	}
 	return bt;
 }
@@ -269,7 +270,7 @@ out_free:
 	return -ENOMEM;
 }
 
-static struct enumerator *enumerator__new(const char *name, uint32_t value)
+static struct enumerator *enumerator__new(const char *name, uint64_t value)
 {
 	struct enumerator *en = tag__alloc(sizeof(*en));
 
@@ -293,9 +294,15 @@ static int create_new_enumeration(struct cu *cu, const struct btf_type *tp, uint
 	if (enumeration == NULL)
 		return -ENOMEM;
 
+	enumeration->is_signed_enum = !!btf_kflag(tp);
+
 	for (i = 0; i < vlen; i++) {
 		const char *name = cu__btf_str(cu, ep[i].name_off);
-		uint32_t value = ep[i].val;
+		uint64_t value = ep[i].val;
+
+		if (!enumeration->is_signed_enum)
+			value = (uint32_t)ep[i].val;
+
 		struct enumerator *enumerator = enumerator__new(name, value);
 
 		if (enumerator == NULL)
@@ -312,6 +319,7 @@ out_free:
 	return -ENOMEM;
 }
 
+#if LIBBPF_MAJOR_VERSION >= 1
 static struct enumerator *enumerator__new64(const char *name, uint64_t value)
 {
 	struct enumerator *en = tag__alloc(sizeof(*en));
@@ -336,6 +344,8 @@ static int create_new_enumeration64(struct cu *cu, const struct btf_type *tp, ui
 	if (enumeration == NULL)
 		return -ENOMEM;
 
+	enumeration->is_signed_enum = !!btf_kflag(tp);
+
 	for (i = 0; i < vlen; i++) {
 		const char *name = cu__btf_str(cu, ep[i].name_off);
 		uint64_t value = btf_enum64_value(&ep[i]);
@@ -354,6 +364,12 @@ out_free:
 	enumeration__delete(enumeration);
 	return -ENOMEM;
 }
+#else
+static int create_new_enumeration64(struct cu *cu __maybe_unused, const struct btf_type *tp __maybe_unused, uint32_t id __maybe_unused)
+{
+	return -ENOTSUP;
+}
+#endif
 
 static int create_new_subroutine_type(struct cu *cu, const struct btf_type *tp, uint32_t id)
 {
@@ -421,10 +437,11 @@ static int create_new_tag(struct cu *cu, int type, const struct btf_type *tp, ui
 		return -ENOMEM;
 
 	switch (type) {
-	case BTF_KIND_CONST:	tag->tag = DW_TAG_const_type;	 break;
-	case BTF_KIND_PTR:	tag->tag = DW_TAG_pointer_type;  break;
-	case BTF_KIND_RESTRICT:	tag->tag = DW_TAG_restrict_type; break;
-	case BTF_KIND_VOLATILE:	tag->tag = DW_TAG_volatile_type; break;
+	case BTF_KIND_CONST:	tag->tag = DW_TAG_const_type;	   break;
+	case BTF_KIND_PTR:	tag->tag = DW_TAG_pointer_type;    break;
+	case BTF_KIND_RESTRICT:	tag->tag = DW_TAG_restrict_type;   break;
+	case BTF_KIND_VOLATILE:	tag->tag = DW_TAG_volatile_type;   break;
+	case BTF_KIND_TYPE_TAG:	tag->tag = DW_TAG_LLVM_annotation; break;
 	default:
 		free(tag);
 		printf("%s: Unknown type %d\n\n", __func__, type);
@@ -433,6 +450,34 @@ static int create_new_tag(struct cu *cu, int type, const struct btf_type *tp, ui
 
 	tag->type = tp->type;
 	cu__add_tag_with_id(cu, tag, id);
+
+	return 0;
+}
+
+static int process_decl_tag(struct cu *cu, const struct btf_type *tp)
+{
+	struct tag *tag = cu__type(cu, tp->type);
+
+	if (tag == NULL)
+		tag = cu__function(cu, tp->type);
+
+	if (tag == NULL)
+		tag = cu__tag(cu, tp->type);
+
+	if (tag == NULL) {
+		printf("WARNING: BTF_KIND_DECL_TAG for unknown BTF id %d\n", tp->type);
+		return 0;
+	}
+
+	const char *attribute = cu__btf_str(cu, tp->name_off);
+
+	if (tag->attribute != NULL) {
+		char bf[128];
+		printf("WARNING: still unsuported BTF_KIND_DECL_TAG(%s) for %s already with attribute (%s), ignoring\n",
+		       attribute, tag__name(tag, cu, bf, sizeof(bf), NULL), tag->attribute);
+	} else {
+		tag->attribute = attribute;
+	}
 
 	return 0;
 }
@@ -481,6 +526,12 @@ static int btf__load_types(struct btf *btf, struct cu *cu)
 		case BTF_KIND_PTR:
 		case BTF_KIND_CONST:
 		case BTF_KIND_RESTRICT:
+		/* For type tag it's a bit of a lie.
+		 * In DWARF it is encoded as a child tag of whatever type it
+		 * applies to. Here we load it as a standalone tag with a pointer
+		 * to a next type only to have a valid ID in the types table.
+		 */
+		case BTF_KIND_TYPE_TAG:
 			err = create_new_tag(cu, type, type_ptr, type_index);
 			break;
 		case BTF_KIND_UNKN:
@@ -498,6 +549,9 @@ static int btf__load_types(struct btf *btf, struct cu *cu)
 			break;
 		case BTF_KIND_FLOAT:
 			err = create_new_float_type(cu, type_ptr, type_index);
+			break;
+		case BTF_KIND_DECL_TAG:
+			err = process_decl_tag(cu, type_ptr);
 			break;
 		default:
 			fprintf(stderr, "BTF: idx: %d, Unknown kind %d\n", type_index, type);
