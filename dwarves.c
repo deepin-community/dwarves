@@ -175,10 +175,10 @@ void tag__delete(struct tag *tag)
 	}
 }
 
-void tag__not_found_die(const char *file, int line, const char *func)
+void tag__not_found_die(const char *file, int line, const char *func, int tag, const char *name)
 {
-	fprintf(stderr, "%s::%s(%d): tag not found, please report to "
-			"acme@kernel.org\n", file, func, line);
+	fprintf(stderr, "%s::%s(%d, related to the type of tag DW_TAG_%s \"%s\"): tag not found, please report to "
+			"acme@kernel.org\n", file, func, line, dwarf_tag_name(tag), name);
 	exit(1);
 }
 
@@ -249,6 +249,29 @@ static struct ase_type_name_to_size {
 	{ .name = "_Float128",              .size = 128, },
 	{ .name = NULL },
 };
+
+bool base_type__language_defined(struct base_type *bt)
+{
+	int i = 0;
+	char bf[64];
+	const char *name;
+
+	if (bt->name_has_encoding)
+		name = bt->name;
+	else
+		name = base_type__name(bt, bf, sizeof(bf));
+
+	while (base_type_name_to_size_table[i].name != NULL) {
+		if (bt->name_has_encoding) {
+			if (strcmp(base_type_name_to_size_table[i].name, bt->name) == 0)
+				return true;
+		} else if (strcmp(base_type_name_to_size_table[i].name, name) == 0)
+			return true;
+		++i;
+	}
+
+	return false;
+}
 
 size_t base_type__name_to_size(struct base_type *bt, struct cu *cu)
 {
@@ -388,7 +411,8 @@ reevaluate:
 		case DW_TAG_const_type:
 		case DW_TAG_typedef:
 		case DW_TAG_rvalue_reference_type:
-		case DW_TAG_volatile_type: {
+		case DW_TAG_volatile_type:
+		case DW_TAG_atomic_type: {
 			struct tag *tag = cu__type(cu, type->type);
 			if (tag == NULL) {
 				tag__id_not_found_fprintf(stderr, type->type);
@@ -445,6 +469,48 @@ void cus__unlock(struct cus *cus)
 	pthread_mutex_unlock(&cus->mutex);
 }
 
+void cus__set_cu_state(struct cus *cus, struct cu *cu, enum cu_state state)
+{
+	cus__lock(cus);
+	cu->state = state;
+	cus__unlock(cus);
+}
+
+// Used only when reproducible builds are desired
+struct cu *cus__get_next_processable_cu(struct cus *cus)
+{
+	struct cu *cu;
+
+	cus__lock(cus);
+
+	list_for_each_entry(cu, &cus->cus, node) {
+		switch (cu->state) {
+		case CU__LOADED:
+			cu->state = CU__PROCESSING;
+			goto found;
+		case CU__PROCESSING:
+			// This will happen when we get to parallel
+			// reproducible BTF encoding, libbpf dedup work needed
+			// here. The other possibility is when we're flushing
+			// the DWARF processed CUs when the parallel DWARF
+			// loading stoped and we still have CUs to encode to
+			// BTF because of ordering requirements.
+			continue;
+		case CU__UNPROCESSED:
+			// The first entry isn't loaded, signal the
+			// caller to return and try another day, as we
+			// need to respect the original DWARF CU ordering.
+			goto out;
+		}
+	}
+out:
+	cu = NULL;
+found:
+	cus__unlock(cus);
+
+	return cu;
+}
+
 bool cus__empty(const struct cus *cus)
 {
 	return list_empty(&cus->cus);
@@ -455,13 +521,29 @@ uint32_t cus__nr_entries(const struct cus *cus)
 	return cus->nr_entries;
 }
 
+void __cus__remove(struct cus *cus, struct cu *cu)
+{
+	cus->nr_entries--;
+	list_del_init(&cu->node);
+}
+
+void cus__remove(struct cus *cus, struct cu *cu)
+{
+	cus__lock(cus);
+	__cus__remove(cus, cu);
+	cus__unlock(cus);
+}
+
+void __cus__add(struct cus *cus, struct cu *cu)
+{
+	cus->nr_entries++;
+	list_add_tail(&cu->node, &cus->cus);
+}
+
 void cus__add(struct cus *cus, struct cu *cu)
 {
 	cus__lock(cus);
-
-	cus->nr_entries++;
-	list_add_tail(&cu->node, &cus->cus);
-
+	__cus__add(cus, cu);
 	cus__unlock(cus);
 
 	cu__find_class_holes(cu);
@@ -625,7 +707,7 @@ struct cu *cu__new(const char *name, uint8_t addr_size,
 		   const unsigned char *build_id, int build_id_len,
 		   const char *filename, bool use_obstack)
 {
-	struct cu *cu = malloc(sizeof(*cu) + build_id_len);
+	struct cu *cu = zalloc(sizeof(*cu) + build_id_len);
 
 	if (cu != NULL) {
 		uint32_t void_id;
@@ -660,6 +742,8 @@ struct cu *cu__new(const char *name, uint8_t addr_size,
 
 		cu->addr_size = addr_size;
 		cu->extra_dbg_info = 0;
+
+		cu->state = CU__UNPROCESSED;
 
 		cu->nr_inline_expansions   = 0;
 		cu->size_inline_expansions = 0;
@@ -1112,6 +1196,7 @@ size_t tag__size(const struct tag *tag, const struct cu *cu)
 	case DW_TAG_reference_type:	return cu->addr_size;
 	case DW_TAG_base_type:		return base_type__size(tag);
 	case DW_TAG_enumeration_type:	return tag__type(tag)->size / 8;
+	case DW_TAG_subroutine_type:	return tag__ftype(tag)->byte_size ?: cu->addr_size;
 	}
 
 	if (tag->type == 0) { /* struct class: unions, structs */
@@ -1503,7 +1588,7 @@ void class__find_holes(struct class *class)
 		}
 		if (bit_holes)
 			class->nr_bit_holes++;
-		if (byte_holes)
+		if (byte_holes > 0)
 			class->nr_holes++;
 
 		last = pos;
@@ -2069,21 +2154,117 @@ int cus__load_file(struct cus *cus, struct conf_load *conf,
 	_min1 < _min2 ? _min1 : _min2; })
 #endif
 
-/* Force a compilation error if condition is true, but also produce a
-   result (of value 0 and type size_t), so the expression can be used
-   e.g. in a structure initializer (or where-ever else comma expressions
-   aren't permitted). */
-#define BUILD_BUG_ON_ZERO(e) (sizeof(struct { int:-!!(e); }))
-
-/* Are two types/vars the same type (ignoring qualifiers)? */
-#ifndef __same_type
-# define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
+#ifndef DW_LANG_C89
+#define DW_LANG_C89		0x0001
 #endif
-
-/* &a[0] degrades to a pointer: a different type from an array */
-#define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
-
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
+#ifndef DW_LANG_C
+#define DW_LANG_C		0x0002
+#endif
+#ifndef DW_LANG_Ada83
+#define DW_LANG_Ada83		0x0003
+#endif
+#ifndef DW_LANG_C_plus_plus
+#define DW_LANG_C_plus_plus	0x0004
+#endif
+#ifndef DW_LANG_Cobol74
+#define DW_LANG_Cobol74		0x0005
+#endif
+#ifndef DW_LANG_Cobol85
+#define DW_LANG_Cobol85		0x0006
+#endif
+#ifndef DW_LANG_Fortran77
+#define DW_LANG_Fortran77	0x0007
+#endif
+#ifndef DW_LANG_Fortran90
+#define DW_LANG_Fortran90	0x0008
+#endif
+#ifndef DW_LANG_Pascal83
+#define DW_LANG_Pascal83	0x0009
+#endif
+#ifndef DW_LANG_Modula2
+#define DW_LANG_Modula2		0x000a
+#endif
+#ifndef DW_LANG_Java
+#define DW_LANG_Java		0x000b
+#endif
+#ifndef DW_LANG_C99
+#define DW_LANG_C99		0x000c
+#endif
+#ifndef DW_LANG_Ada95
+#define DW_LANG_Ada95		0x000d
+#endif
+#ifndef DW_LANG_Fortran95
+#define DW_LANG_Fortran95	0x000e
+#endif
+#ifndef DW_LANG_PLI
+#define DW_LANG_PLI		0x000f
+#endif
+#ifndef DW_LANG_ObjC
+#define DW_LANG_ObjC		0x0010
+#endif
+#ifndef DW_LANG_ObjC_plus_plus
+#define DW_LANG_ObjC_plus_plus	0x0011
+#endif
+#ifndef DW_LANG_UPC
+#define DW_LANG_UPC		0x0012
+#endif
+#ifndef DW_LANG_D
+#define DW_LANG_D		0x0013
+#endif
+#ifndef DW_LANG_Python
+#define DW_LANG_Python		0x0014
+#endif
+#ifndef DW_LANG_OpenCL
+#define DW_LANG_OpenCL		0x0015
+#endif
+#ifndef DW_LANG_Go
+#define DW_LANG_Go		0x0016
+#endif
+#ifndef DW_LANG_Modula3
+#define DW_LANG_Modula3		0x0017
+#endif
+#ifndef DW_LANG_Haskell
+#define DW_LANG_Haskell		0x0018
+#endif
+#ifndef DW_LANG_C_plus_plus_03
+#define DW_LANG_C_plus_plus_03	0x0019
+#endif
+#ifndef DW_LANG_C_plus_plus_11
+#define DW_LANG_C_plus_plus_11	0x001a
+#endif
+#ifndef DW_LANG_OCaml
+#define DW_LANG_OCaml		0x001b
+#endif
+#ifndef DW_LANG_Rust
+#define DW_LANG_Rust		0x001c
+#endif
+#ifndef DW_LANG_C11
+#define DW_LANG_C11		0x001d
+#endif
+#ifndef DW_LANG_Swift
+#define DW_LANG_Swift		0x001e
+#endif
+#ifndef DW_LANG_Julia
+#define DW_LANG_Julia		0x001f
+#endif
+#ifndef DW_LANG_Dylan
+#define DW_LANG_Dylan		0x0020
+#endif
+#ifndef DW_LANG_C_plus_plus_14
+#define DW_LANG_C_plus_plus_14	0x0021
+#endif
+#ifndef DW_LANG_Fortran03
+#define DW_LANG_Fortran03	0x0022
+#endif
+#ifndef DW_LANG_Fortran08
+#define DW_LANG_Fortran08	0x0023
+#endif
+#ifndef DW_LANG_RenderScript
+#define DW_LANG_RenderScript	0x0024
+#endif
+#ifndef DW_LANG_BLISS
+#define DW_LANG_BLISS		0x0025
+#endif
 
 int lang__str2int(const char *lang)
 {
@@ -2126,6 +2307,9 @@ int lang__str2int(const char *lang)
 	[DW_LANG_Swift]		 = "swift",
 	[DW_LANG_UPC]		 = "upc",
 	};
+
+	if (strcasecmp(lang, "asm") == 0)
+		return DW_LANG_Mips_Assembler;
 
 	// c89 is the first, bliss is the last, see /usr/include/dwarf.h
 	for (int id = DW_LANG_C89; id <= DW_LANG_BLISS; ++id)
@@ -2470,12 +2654,9 @@ int cus__fprintf_load_files_err(struct cus *cus __maybe_unused, const char *tool
 
 struct cus *cus__new(void)
 {
-	struct cus *cus = malloc(sizeof(*cus));
+	struct cus *cus = zalloc(sizeof(*cus));
 
 	if (cus != NULL) {
-		cus->nr_entries  = 0;
-		cus->priv	 = NULL;
-		cus->loader_exit = NULL;
 		INIT_LIST_HEAD(&cus->cus);
 		pthread_mutex_init(&cus->mutex, NULL);
 	}

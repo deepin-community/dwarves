@@ -1,0 +1,28 @@
+From: Domenico Andreoli <domenico.andreoli@linux.com>
+
+Reformat a too long line.
+
+Signed-off-by: Domenico Andreoli <domenico.andreoli@linux.com>
+
+---
+ man-pages/pahole.1 |    7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+Index: b/man-pages/pahole.1
+===================================================================
+--- a/man-pages/pahole.1
++++ b/man-pages/pahole.1
+@@ -290,7 +290,12 @@ Allow using all the BTF features support
+ 
+ .TP
+ .B \-\-btf_features=FEATURE_LIST
+-Encode BTF using the specified feature list, or specify 'default' for all standard features supported.  This option can be used as an alternative to using multiple BTF-related options, and 'default' represents the standard set of BTF features that are in use for kernel BTF generation, so is useful as a shortcut for testing the latest set of standard features.  However kernel builds will call out specific features rather than using 'default' to ensure that the desired features are enabled regardless of pahole version and associated 'default' set.  Supported standard features are
++Encode BTF using the specified feature list, or specify 'default' for all standard features
++supported.  This option can be used as an alternative to using multiple BTF-related options,
++and 'default' represents the standard set of BTF features that are in use for kernel BTF generation,
++so is useful as a shortcut for testing the latest set of standard features.  However kernel builds
++will call out specific features rather than using 'default' to ensure that the desired features
++are enabled regardless of pahole version and associated 'default' set.  Supported standard features are
+ 
+ .nf
+ 	encode_force       Ignore invalid symbols when encoding BTF; for example

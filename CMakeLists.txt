@@ -1,5 +1,5 @@
-project(pahole C)
 cmake_minimum_required(VERSION 2.8.12)
+project(pahole C)
 cmake_policy(SET CMP0005 NEW)
 
 option(LIBBPF_EMBEDDED "Use the embedded version of libbpf instead of searching it via pkg-config" ON)
@@ -54,9 +54,9 @@ if (NOT DEFINED BUILD_SHARED_LIBS)
 endif (NOT DEFINED BUILD_SHARED_LIBS)
 
 # Just for grepping, DWARVES_VERSION isn't used anywhere anymore
-# add_definitions(-D_GNU_SOURCE -DDWARVES_VERSION="v1.24")
+# add_definitions(-D_GNU_SOURCE -DDWARVES_VERSION="v1.27")
 add_definitions(-D_GNU_SOURCE -DDWARVES_MAJOR_VERSION=1)
-add_definitions(-D_GNU_SOURCE -DDWARVES_MINOR_VERSION=24)
+add_definitions(-D_GNU_SOURCE -DDWARVES_MINOR_VERSION=27)
 find_package(DWARF REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(argp REQUIRED)
