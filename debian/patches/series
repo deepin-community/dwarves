@@ -2,3 +2,4 @@
 01-dwarf_loader-Add-missing-cus__add-to-cus__merge_and_process_cu.patch
 02-fix-btf_loader-spelling-error.patch
 03-reformat-long-line-in-pahole-manpage.patch
+0001-feat-add-sw64-support.patch
