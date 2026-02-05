@@ -1,4 +1,16 @@
+.github/scripts/*
+.github/workflows/*
 PKG-MAINTAINERS
 README.cross
+config.h
 ctfdwdiff
+tests/bin/Makefile
+tests/bin/test_bin.c
+tests/btf_functions.sh
+tests/default_vmlinux_btf.sh
+tests/flexible_arrays.sh
+tests/pfunct-btf-decl-tags.sh
+tests/prettify_perf.data.sh
 tests/reproducible_build.sh
+tests/reproducible_build.sh
+tests/tests

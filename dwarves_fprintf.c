@@ -1405,9 +1405,11 @@ static size_t function__fprintf(const struct tag *tag, const struct cu *cu,
 	struct ftype *ftype = func->btf ? tag__ftype(cu__type(cu, func->proto.tag.type)) : &func->proto;
 	size_t printed = 0;
 	bool inlined = !conf->strip_inline && function__declared_inline(func);
+	int i;
 
-	if (tag->attribute)
-		printed += fprintf(fp, "%s ", tag->attribute);
+	if (tag->attributes)
+		for (i = 0; i < tag->attributes->cnt; ++i)
+			printed += fprintf(fp, "%s ", tag->attributes->values[i]);
 
 	if (func->virtuality == DW_VIRTUALITY_virtual ||
 	    func->virtuality == DW_VIRTUALITY_pure_virtual)
@@ -1502,6 +1504,8 @@ struct member_types_holes {
 	uint16_t nr_with_bit_holes;
 	uint16_t total_nr_holes;
 	uint16_t total_nr_bit_holes;
+	uint16_t nr_flexible_array_members;
+	uint16_t nr_embedded_flexible_array_members;
 	uint32_t sum_paddings;
 	uint32_t sum_bit_paddings;
 };
@@ -1513,7 +1517,7 @@ static size_t class__fprintf_member_type_holes(struct class *class, const struct
 	size_t printed = 0;
 	uint16_t padding;
 	uint8_t nr_holes, nr_bit_holes, bit_padding;
-	bool first = true;
+	bool first = true, has_embedded_flexible_array, has_flexible_array;
 	/*
 	 * We may not yet have looked for holes and paddings in this member's
 	 * struct type.
@@ -1525,8 +1529,10 @@ static size_t class__fprintf_member_type_holes(struct class *class, const struct
 	bit_padding = class->bit_padding;
 	nr_holes = class->nr_holes;
 	nr_bit_holes = class->nr_bit_holes;
+	has_flexible_array = class__has_flexible_array(class, cu);
+	has_embedded_flexible_array = class__has_embedded_flexible_array(class, cu);
 
-	if (!padding && !bit_padding && !nr_holes && !nr_bit_holes)
+	if (!padding && !bit_padding && !nr_holes && !nr_bit_holes && !has_flexible_array && !has_embedded_flexible_array)
 		return 0;
 
 	if (!(*newline)++) {
@@ -1536,11 +1542,23 @@ static size_t class__fprintf_member_type_holes(struct class *class, const struct
 
 	printed += fprintf(fp, "\n%.*s/* XXX last struct has", conf->indent, tabs);
 
+	if (has_flexible_array) {
+		printed += fprintf(fp, " a flexible array");
+		++holes->nr_flexible_array_members;
+		first = false;
+	}
+
+	if (has_embedded_flexible_array) {
+		printed += fprintf(fp, "%s embedded flexible array(s)", first ? "" : ",");
+		++holes->nr_embedded_flexible_array_members;
+		first = false;
+	}
+
 	if (padding) {
 		++holes->nr_paddings;
 		holes->sum_paddings += padding;
 
-		printed += fprintf(fp, " %d byte%s of padding", padding, padding != 1 ? "s" : "");
+		printed += fprintf(fp, "%s %d byte%s of padding", first ? "" : ",", padding, padding != 1 ? "s" : "");
 		first = false;
 	}
 
@@ -1973,7 +1991,23 @@ next_member:
 		}
 		printed += fprintf(fp, " */\n");
 	}
-	cacheline = (cconf.base_offset + type->size) % conf_fprintf__cacheline_size(conf);
+	if (member_types_holes.nr_flexible_array_members > 0 ||
+	    member_types_holes.nr_embedded_flexible_array_members > 0) {
+		printed += fprintf(fp, "%.*s/* flexible array members: ",
+				   cconf.indent, tabs);
+
+		if (member_types_holes.nr_flexible_array_members > 0)
+			printed += fprintf(fp, "end: %u", member_types_holes.nr_flexible_array_members);
+
+		if (member_types_holes.nr_embedded_flexible_array_members > 0) {
+			printed += fprintf(fp, "%smiddle: %u",
+					   member_types_holes.nr_flexible_array_members ? ", " : "",
+					   member_types_holes.nr_embedded_flexible_array_members);
+		}
+
+		printed += fprintf(fp, " */\n");
+	}
+	cacheline = (cconf.base_offset + type->size) % conf_fprintf__cacheline_size(&cconf);
 	if (cacheline != 0)
 		printed += fprintf(fp, "%.*s/* last cacheline: %u bytes */\n",
 				   cconf.indent, tabs,
@@ -2076,7 +2110,7 @@ static size_t namespace__fprintf(const struct tag *tag, const struct cu *cu,
 		printed += fprintf(fp, "\n\n");
 	}
 
-	return printed + fprintf(fp, "}");
+	return printed + fprintf(fp, "%.*s}", conf->indent, tabs);
 }
 
 size_t tag__fprintf(struct tag *tag, const struct cu *cu,

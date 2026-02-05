@@ -10,7 +10,7 @@ Vcs-Git: https://salsa.debian.org/debian/dwarves.git
 Homepage: https://git.kernel.org/pub/scm/devel/pahole/pahole.git
 
 Package: pahole
-Architecture: any
+Architecture: linux-any
 Multi-Arch: foreign
 Replaces: dwarves (<< 1.22)
 Breaks: dwarves (<< 1.22)

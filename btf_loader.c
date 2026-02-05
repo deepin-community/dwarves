@@ -53,6 +53,10 @@ static int cu__load_ftype(struct cu *cu, struct ftype *proto, uint32_t tag, cons
 	proto->tag.tag	= tag;
 	proto->tag.type = tp->type;
 	INIT_LIST_HEAD(&proto->parms);
+	INIT_LIST_HEAD(&proto->template_type_params);
+	INIT_LIST_HEAD(&proto->template_value_params);
+	proto->template_parameter_pack = NULL;
+	proto->formal_parameter_pack = NULL;
 
 	for (i = 0; i < vlen; ++i, param++) {
 		if (param->type == 0)
@@ -73,7 +77,7 @@ static int cu__load_ftype(struct cu *cu, struct ftype *proto, uint32_t tag, cons
 
 	return 0;
 out_free_parameters:
-	ftype__delete(proto);
+	ftype__delete(proto, cu);
 	return -ENOMEM;
 }
 
@@ -120,6 +124,7 @@ static void type__init(struct type *type, uint32_t tag, const char *name, size_t
 	type->size = size;
 	type->namespace.tag.tag = tag;
 	type->namespace.name = name;
+	type->template_parameter_pack = NULL;
 }
 
 static struct type *type__new(uint16_t tag, const char *name, size_t size)
@@ -250,7 +255,7 @@ static int create_new_class(struct cu *cu, const struct btf_type *tp, uint32_t i
 
 	return 0;
 out_free:
-	class__delete(class);
+	class__delete(class, cu);
 	return -ENOMEM;
 }
 
@@ -266,7 +271,7 @@ static int create_new_union(struct cu *cu, const struct btf_type *tp, uint32_t i
 
 	return 0;
 out_free:
-	type__delete(un);
+	type__delete(un, cu);
 	return -ENOMEM;
 }
 
@@ -315,7 +320,7 @@ static int create_new_enumeration(struct cu *cu, const struct btf_type *tp, uint
 
 	return 0;
 out_free:
-	enumeration__delete(enumeration);
+	enumeration__delete(enumeration, cu);
 	return -ENOMEM;
 }
 
@@ -361,7 +366,7 @@ static int create_new_enumeration64(struct cu *cu, const struct btf_type *tp, ui
 
 	return 0;
 out_free:
-	enumeration__delete(enumeration);
+	enumeration__delete(enumeration, cu);
 	return -ENOMEM;
 }
 #else
@@ -444,7 +449,7 @@ static int create_new_tag(struct cu *cu, int type, const struct btf_type *tp, ui
 	case BTF_KIND_TYPE_TAG:	tag->tag = DW_TAG_LLVM_annotation; break;
 	default:
 		free(tag);
-		printf("%s: Unknown type %d\n\n", __func__, type);
+		fprintf(stderr, "%s: Unknown type %d\n\n", __func__, type);
 		return 0;
 	}
 
@@ -454,9 +459,28 @@ static int create_new_tag(struct cu *cu, int type, const struct btf_type *tp, ui
 	return 0;
 }
 
+static struct attributes *attributes__realloc(struct attributes *attributes, const char *value)
+{
+	struct attributes *result;
+	uint64_t cnt;
+	size_t sz;
+
+	cnt = attributes ? attributes->cnt : 0;
+	sz = sizeof(*attributes) + (cnt + 1) * sizeof(*attributes->values);
+	result = realloc(attributes, sz);
+	if (!result)
+		return NULL;
+	if (!attributes)
+		result->cnt = 0;
+	result->values[cnt] = value;
+	result->cnt++;
+	return result;
+}
+
 static int process_decl_tag(struct cu *cu, const struct btf_type *tp)
 {
 	struct tag *tag = cu__type(cu, tp->type);
+	struct attributes *tmp;
 
 	if (tag == NULL)
 		tag = cu__function(cu, tp->type);
@@ -465,19 +489,16 @@ static int process_decl_tag(struct cu *cu, const struct btf_type *tp)
 		tag = cu__tag(cu, tp->type);
 
 	if (tag == NULL) {
-		printf("WARNING: BTF_KIND_DECL_TAG for unknown BTF id %d\n", tp->type);
+		fprintf(stderr, "WARNING: BTF_KIND_DECL_TAG for unknown BTF id %d\n", tp->type);
 		return 0;
 	}
 
 	const char *attribute = cu__btf_str(cu, tp->name_off);
+	tmp = attributes__realloc(tag->attributes, attribute);
+	if (!tmp)
+		return -ENOMEM;
 
-	if (tag->attribute != NULL) {
-		char bf[128];
-		printf("WARNING: still unsuported BTF_KIND_DECL_TAG(%s) for %s already with attribute (%s), ignoring\n",
-		       attribute, tag__name(tag, cu, bf, sizeof(bf), NULL), tag->attribute);
-	} else {
-		tag->attribute = attribute;
-	}
+	tag->attributes = tmp;
 
 	return 0;
 }
@@ -624,9 +645,15 @@ static int class__fixup_btf_bitfields(const struct conf_load *conf, struct tag *
 		pos->byte_size = tag__size(type, cu);
 		pos->bit_size = pos->byte_size * 8;
 
-		/* if BTF data is incorrect and has size == 0, skip field,
-		 * instead of crashing */
+		/* If the BTF data is incorrect and has size == 0, skip field
+		 * instead of crashing. However the field can be a zero or
+		 * variable-length array and we still need to infer alignment.
+		 */
 		if (pos->byte_size == 0) {
+			pos->alignment = class__infer_alignment(conf,
+								pos->byte_offset,
+								tag__natural_alignment(type, cu),
+								smallest_offset);
 			continue;
 		}
 
@@ -651,7 +678,18 @@ static int class__fixup_btf_bitfields(const struct conf_load *conf, struct tag *
 							pos->byte_offset,
 							tag__natural_alignment(type, cu),
 							smallest_offset);
-		smallest_offset = pos->byte_offset + pos->byte_size;
+
+		/* Compute the smallest offset between this field and the next
+		 * one.
+		 *
+		 * In case of bitfields we need to take into account the
+		 * actual size being used instead of the underlying type one as
+		 * it could be larger, otherwise we could miss a hole.
+		 */
+		smallest_offset = pos->byte_offset;
+		smallest_offset += pos->bitfield_size ?
+			(pos->bitfield_offset + pos->bitfield_size + 7) / 8 :
+			pos->byte_size;
 	}
 
 	tag_type->alignment = class__infer_alignment(conf,
@@ -724,7 +762,7 @@ static int cus__load_btf(struct cus *cus, struct conf_load *conf, const char *fi
 	 * The app stole this cu, possibly deleting it,
 	 * so forget about it
 	 */
-	if (conf && conf->steal && conf->steal(cu, conf, NULL))
+	if (conf && conf->steal && conf->steal(cu, conf))
 		return 0;
 
 	cus__add(cus, cu);

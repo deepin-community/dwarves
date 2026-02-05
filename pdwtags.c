@@ -73,12 +73,25 @@ static int cu__emit_tags(struct cu *cu)
 		printf(" /* size: %zd */\n\n", tag__size(tag, cu));
 	}
 
+	bool first_namespace = true;
+
+	cu__for_each_namespace(cu, i, tag) {
+		if (!tag->top_level)
+			continue;
+
+		if (first_namespace) {
+			puts("\n\n/* Namespaces: */\n");
+			first_namespace = false;
+		}
+		tag__fprintf(tag, cu, NULL, stdout);
+		puts("\n");
+	}
+
 	return 0;
 }
 
 static enum load_steal_kind pdwtags_stealer(struct cu *cu,
-					    struct conf_load *conf_load __maybe_unused,
-					    void *thr_data __maybe_unused)
+					    struct conf_load *conf_load __maybe_unused)
 {
 	cu__emit_tags(cu);
 	return LSK__DELETE;

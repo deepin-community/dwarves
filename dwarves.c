@@ -68,6 +68,22 @@ void cu__free(struct cu *cu, void *ptr)
 	// When using an obstack we'll free everything in cu__delete()
 }
 
+void cu__tag_free(struct cu *cu, struct tag *tag)
+{
+	if (cu->dfops && cu->dfops->tag__free)
+		cu->dfops->tag__free(tag, cu);
+	else
+		cu__free(cu, tag);
+}
+
+void *cu__tag_alloc(struct cu *cu, size_t size)
+{
+	if (cu->dfops && cu->dfops->tag__alloc)
+		return cu->dfops->tag__alloc(cu, size);
+
+	return cu__zalloc(cu, size);
+}
+
 int tag__is_base_type(const struct tag *tag, const struct cu *cu)
 {
 	switch (tag->tag) {
@@ -129,49 +145,94 @@ int __tag__has_type_loop(const struct tag *tag, const struct tag *type,
 	return 0;
 }
 
-static void lexblock__delete_tags(struct tag *tag)
+static void lexblock__delete_tags(struct tag *tag, struct cu *cu)
 {
 	struct lexblock *block = tag__lexblock(tag);
 	struct tag *pos, *n;
 
 	list_for_each_entry_safe_reverse(pos, n, &block->tags, node) {
 		list_del_init(&pos->node);
-		tag__delete(pos);
+		tag__delete(pos, cu);
 	}
 }
 
-void lexblock__delete(struct lexblock *block)
+void lexblock__delete(struct lexblock *block, struct cu *cu)
 {
 	if (block == NULL)
 		return;
 
-	lexblock__delete_tags(&block->ip.tag);
-	free(block);
+	lexblock__delete_tags(&block->ip.tag, cu);
+	cu__tag_free(cu, &block->ip.tag);
 }
 
-void tag__delete(struct tag *tag)
+static void template_parameter_pack__delete_tags(struct template_parameter_pack *pack, struct cu *cu)
+{
+	struct tag *pos, *n;
+
+	list_for_each_entry_safe_reverse(pos, n, &pack->params, node) {
+		list_del_init(&pos->node);
+		tag__delete(pos, cu);
+	}
+}
+
+void template_parameter_pack__delete(struct template_parameter_pack *pack, struct cu *cu)
+{
+	if (pack == NULL)
+		return;
+
+	template_parameter_pack__delete_tags(pack, cu);
+	cu__tag_free(cu, &pack->tag);
+}
+
+static void formal_parameter_pack__delete_tags(struct formal_parameter_pack *pack, struct cu *cu)
+{
+	struct tag *pos, *n;
+
+	list_for_each_entry_safe_reverse(pos, n, &pack->params, node) {
+		list_del_init(&pos->node);
+		tag__delete(pos, cu);
+	}
+}
+
+void formal_parameter_pack__delete(struct formal_parameter_pack *pack, struct cu *cu)
+{
+	if (pack == NULL)
+		return;
+
+	formal_parameter_pack__delete_tags(pack, cu);
+	cu__tag_free(cu, &pack->tag);
+}
+
+void tag__delete(struct tag *tag, struct cu *cu)
 {
 	if (tag == NULL)
 		return;
 
 	assert(list_empty(&tag->node));
 
+	if (tag->attributes)
+		free(tag->attributes);
+
 	switch (tag->tag) {
 	case DW_TAG_union_type:
-		type__delete(tag__type(tag));		break;
+		type__delete(tag__type(tag), cu);		break;
 	case DW_TAG_class_type:
 	case DW_TAG_structure_type:
-		class__delete(tag__class(tag));		break;
+		class__delete(tag__class(tag), cu);		break;
 	case DW_TAG_enumeration_type:
-		enumeration__delete(tag__type(tag));	break;
+		enumeration__delete(tag__type(tag), cu);	break;
 	case DW_TAG_subroutine_type:
-		ftype__delete(tag__ftype(tag));		break;
+		ftype__delete(tag__ftype(tag), cu);		break;
 	case DW_TAG_subprogram:
-		function__delete(tag__function(tag));	break;
+		function__delete(tag__function(tag), cu); break;
 	case DW_TAG_lexical_block:
-		lexblock__delete(tag__lexblock(tag));	break;
+		lexblock__delete(tag__lexblock(tag), cu); break;
+	case DW_TAG_GNU_template_parameter_pack:
+		template_parameter_pack__delete(tag__template_parameter_pack(tag), cu);	break;
+	case DW_TAG_GNU_formal_parameter_pack:
+		formal_parameter_pack__delete(tag__formal_parameter_pack(tag), cu);	break;
 	default:
-		free(tag);
+		cu__tag_free(cu, tag);
 	}
 }
 
@@ -342,7 +403,7 @@ const char *base_type__name(const struct base_type *bt, char *bf, size_t len)
 	return bf;
 }
 
-void namespace__delete(struct namespace *space)
+void namespace__delete(struct namespace *space, struct cu *cu)
 {
 	struct tag *pos, *n;
 
@@ -354,17 +415,20 @@ void namespace__delete(struct namespace *space)
 
 		/* Look for nested namespaces */
 		if (tag__has_namespace(pos))
-			namespace__delete(tag__namespace(pos));
-		tag__delete(pos);
+			namespace__delete(tag__namespace(pos), cu);
+		tag__delete(pos, cu);
 	}
 
-	tag__delete(&space->tag);
+	tag__delete(&space->tag, cu);
 }
 
 void __type__init(struct type *type)
 {
 	INIT_LIST_HEAD(&type->node);
 	INIT_LIST_HEAD(&type->type_enum);
+	INIT_LIST_HEAD(&type->template_type_params);
+	INIT_LIST_HEAD(&type->template_value_params);
+	type->template_parameter_pack = NULL;
 	type->sizeof_member = NULL;
 	type->member_prefix = NULL;
 	type->member_prefix_len = 0;
@@ -467,48 +531,6 @@ void cus__lock(struct cus *cus)
 void cus__unlock(struct cus *cus)
 {
 	pthread_mutex_unlock(&cus->mutex);
-}
-
-void cus__set_cu_state(struct cus *cus, struct cu *cu, enum cu_state state)
-{
-	cus__lock(cus);
-	cu->state = state;
-	cus__unlock(cus);
-}
-
-// Used only when reproducible builds are desired
-struct cu *cus__get_next_processable_cu(struct cus *cus)
-{
-	struct cu *cu;
-
-	cus__lock(cus);
-
-	list_for_each_entry(cu, &cus->cus, node) {
-		switch (cu->state) {
-		case CU__LOADED:
-			cu->state = CU__PROCESSING;
-			goto found;
-		case CU__PROCESSING:
-			// This will happen when we get to parallel
-			// reproducible BTF encoding, libbpf dedup work needed
-			// here. The other possibility is when we're flushing
-			// the DWARF processed CUs when the parallel DWARF
-			// loading stoped and we still have CUs to encode to
-			// BTF because of ordering requirements.
-			continue;
-		case CU__UNPROCESSED:
-			// The first entry isn't loaded, signal the
-			// caller to return and try another day, as we
-			// need to respect the original DWARF CU ordering.
-			goto out;
-		}
-	}
-out:
-	cu = NULL;
-found:
-	cus__unlock(cus);
-
-	return cu;
 }
 
 bool cus__empty(const struct cus *cus)
@@ -703,6 +725,8 @@ int cu__fprintf_ptr_table_stats_csv(struct cu *cu, FILE *fp)
 	return printed;
 }
 
+#define OBSTACK_CHUNK_SIZE (128*1024)
+
 struct cu *cu__new(const char *name, uint8_t addr_size,
 		   const unsigned char *build_id, int build_id_len,
 		   const char *filename, bool use_obstack)
@@ -714,7 +738,10 @@ struct cu *cu__new(const char *name, uint8_t addr_size,
 
 		cu->use_obstack = use_obstack;
 		if (cu->use_obstack)
-			obstack_init(&cu->obstack);
+			obstack_begin(&cu->obstack, OBSTACK_CHUNK_SIZE);
+
+		if (name == NULL || filename == NULL)
+			goto out_free;
 
 		cu->name = strdup(name);
 		if (cu->name == NULL)
@@ -739,11 +766,10 @@ struct cu *cu__new(const char *name, uint8_t addr_size,
 		cu->dfops	= NULL;
 		INIT_LIST_HEAD(&cu->tags);
 		INIT_LIST_HEAD(&cu->tool_list);
+		INIT_LIST_HEAD(&cu->node);
 
 		cu->addr_size = addr_size;
 		cu->extra_dbg_info = 0;
-
-		cu->state = CU__UNPROCESSED;
 
 		cu->nr_inline_expansions   = 0;
 		cu->size_inline_expansions = 0;
@@ -1237,59 +1263,62 @@ const char *variable__type_name(const struct variable *var,
 	return tag != NULL ? tag__name(tag, cu, bf, len, NULL) : NULL;
 }
 
-void class_member__delete(struct class_member *member)
+void class_member__delete(struct class_member *member, struct cu *cu)
 {
-	free(member);
+	cu__tag_free(cu, &member->tag);
 }
 
-static struct class_member *class_member__clone(const struct class_member *from)
+static struct class_member *class_member__clone(const struct class_member *from, struct cu *cu)
 {
-	struct class_member *member = malloc(sizeof(*member));
+	struct class_member *member = cu__tag_alloc(cu, sizeof(*member));
 
-	if (member != NULL)
+	if (member != NULL) // FIXME: the type-format specific (DWARF notably) are isn't beying copied, so far this isn't important, not used in the current tools
 		memcpy(member, from, sizeof(*member));
 
 	return member;
 }
 
-static void type__delete_class_members(struct type *type)
+static void type__delete_class_members(struct type *type, struct cu *cu)
 {
 	struct class_member *pos, *next;
 
 	type__for_each_tag_safe_reverse(type, pos, next) {
 		list_del_init(&pos->tag.node);
-		class_member__delete(pos);
+		class_member__delete(pos, cu);
 	}
 }
 
-void class__delete(struct class *class)
+void class__delete(struct class *class, struct cu *cu)
 {
 	if (class == NULL)
 		return;
 
-	type__delete_class_members(&class->type);
-	free(class);
+	type__delete_class_members(&class->type, cu);
+	cu__tag_free(cu, class__tag(class));
 }
 
-void type__delete(struct type *type)
+void type__delete(struct type *type, struct cu *cu)
 {
 	if (type == NULL)
 		return;
 
-	type__delete_class_members(type);
+	type__delete_class_members(type, cu);
 
 	if (type->suffix_disambiguation)
 		zfree(&type->namespace.name);
 
-	free(type);
+	template_parameter_pack__delete(type->template_parameter_pack, cu);
+	type->template_parameter_pack = NULL;
+
+	cu__tag_free(cu, type__tag(type));
 }
 
-static void enumerator__delete(struct enumerator *enumerator)
+static void enumerator__delete(struct enumerator *enumerator, struct cu *cu)
 {
-	free(enumerator);
+	cu__tag_free(cu, &enumerator->tag);
 }
 
-void enumeration__delete(struct type *type)
+void enumeration__delete(struct type *type, struct cu *cu)
 {
 	struct enumerator *pos, *n;
 
@@ -1298,13 +1327,13 @@ void enumeration__delete(struct type *type)
 
 	type__for_each_enumerator_safe_reverse(type, pos, n) {
 		list_del_init(&pos->tag.node);
-		enumerator__delete(pos);
+		enumerator__delete(pos, cu);
 	}
 
 	if (type->suffix_disambiguation)
 		zfree(&type->namespace.name);
 
-	free(type);
+	cu__tag_free(cu, type__tag(type));
 }
 
 void class__add_vtable_entry(struct class *class, struct function *vtable_entry)
@@ -1315,7 +1344,6 @@ void class__add_vtable_entry(struct class *class, struct function *vtable_entry)
 
 void namespace__add_tag(struct namespace *space, struct tag *tag)
 {
-	++space->nr_tags;
 	list_add_tail(&tag->node, &space->tags);
 }
 
@@ -1328,6 +1356,16 @@ void type__add_member(struct type *type, struct class_member *member)
 	namespace__add_tag(&type->namespace, &member->tag);
 }
 
+void type__add_template_type_param(struct type *type, struct template_type_param *ttparam)
+{
+	list_add_tail(&ttparam->tag.node, &type->template_type_params);
+}
+
+void type__add_template_value_param(struct type *type, struct template_value_param *tvparam)
+{
+	list_add_tail(&tvparam->tag.node, &type->template_value_params);
+}
+
 struct class_member *type__last_member(struct type *type)
 {
 	struct class_member *pos;
@@ -1338,7 +1376,7 @@ struct class_member *type__last_member(struct type *type)
 	return NULL;
 }
 
-static int type__clone_members(struct type *type, const struct type *from)
+static int type__clone_members(struct type *type, const struct type *from, struct cu *cu)
 {
 	struct class_member *pos;
 
@@ -1346,7 +1384,7 @@ static int type__clone_members(struct type *type, const struct type *from)
 	INIT_LIST_HEAD(&type->namespace.tags);
 
 	type__for_each_member(from, pos) {
-		struct class_member *clone = class_member__clone(pos);
+		struct class_member *clone = class_member__clone(pos, cu);
 
 		if (clone == NULL)
 			return -1;
@@ -1356,21 +1394,21 @@ static int type__clone_members(struct type *type, const struct type *from)
 	return 0;
 }
 
-struct class *class__clone(const struct class *from, const char *new_class_name)
+struct class *class__clone(const struct class *from, const char *new_class_name, struct cu *cu)
 {
-	struct class *class = malloc(sizeof(*class));
+	struct class *class = cu__tag_alloc(cu, sizeof(*class));
 
 	 if (class != NULL) {
 		memcpy(class, from, sizeof(*class));
 		if (new_class_name != NULL) {
 			class->type.namespace.name = strdup(new_class_name);
 			if (class->type.namespace.name == NULL) {
-				free(class);
+				cu__free(cu, class);
 				return NULL;
 			}
 		}
-		if (type__clone_members(&class->type, &from->type) != 0) {
-			class__delete(class);
+		if (type__clone_members(&class->type, &from->type, cu) != 0) {
+			class__delete(class, cu);
 			class = NULL;
 		}
 	}
@@ -1395,12 +1433,12 @@ const char *function__name(struct function *func)
 	return func->name;
 }
 
-static void parameter__delete(struct parameter *parm)
+static void parameter__delete(struct parameter *parm, struct cu *cu)
 {
-	free(parm);
+	cu__tag_free(cu, &parm->tag);
 }
 
-void ftype__delete(struct ftype *type)
+void ftype__delete(struct ftype *type, struct cu *cu)
 {
 	struct parameter *pos, *n;
 
@@ -1409,18 +1447,22 @@ void ftype__delete(struct ftype *type)
 
 	ftype__for_each_parameter_safe_reverse(type, pos, n) {
 		list_del_init(&pos->tag.node);
-		parameter__delete(pos);
+		parameter__delete(pos, cu);
 	}
-	free(type);
+
+	template_parameter_pack__delete(type->template_parameter_pack, cu);
+	type->template_parameter_pack = NULL;
+
+	cu__tag_free(cu, &type->tag);
 }
 
-void function__delete(struct function *func)
+void function__delete(struct function *func, struct cu *cu)
 {
 	if (func == NULL)
 		return;
 
-	lexblock__delete_tags(&func->lexblock.ip.tag);
-	ftype__delete(&func->proto);
+	lexblock__delete_tags(&func->lexblock.ip.tag, cu);
+	ftype__delete(&func->proto, cu);
 }
 
 int ftype__has_parm_of_type(const struct ftype *ftype, const type_id_t target,
@@ -1452,6 +1494,26 @@ void ftype__add_parameter(struct ftype *ftype, struct parameter *parm)
 	list_add_tail(&parm->tag.node, &ftype->parms);
 }
 
+void ftype__add_template_type_param(struct ftype *ftype, struct template_type_param *param)
+{
+	list_add_tail(&param->tag.node, &ftype->template_type_params);
+}
+
+void ftype__add_template_value_param(struct ftype *ftype, struct template_value_param *param)
+{
+	list_add_tail(&param->tag.node, &ftype->template_value_params);
+}
+
+void template_parameter_pack__add(struct template_parameter_pack *pack, struct template_type_param *param)
+{
+	list_add_tail(&param->tag.node, &pack->params);
+}
+
+void formal_parameter_pack__add(struct formal_parameter_pack *pack, struct parameter *param)
+{
+	list_add_tail(&param->tag.node, &pack->params);
+}
+
 void lexblock__add_tag(struct lexblock *block, struct tag *tag)
 {
 	list_add_tail(&tag->node, &block->tags);
@@ -1475,6 +1537,39 @@ void lexblock__add_label(struct lexblock *block, struct label *label)
 {
 	++block->nr_labels;
 	lexblock__add_tag(block, &label->ip.tag);
+}
+
+static bool __class__has_flexible_array(struct class *class, const struct cu *cu)
+{
+	struct class_member *member = type__last_member(&class->type);
+
+	if (member == NULL)
+		return false;
+
+	struct tag *type = cu__type(cu, member->tag.type);
+
+	if (type->tag != DW_TAG_array_type)
+		return false;
+
+	struct array_type *array = tag__array_type(type);
+
+	if (array->dimensions > 1)
+		return false;
+
+	if (array->nr_entries == NULL || array->nr_entries[0] == 0)
+		return true;
+
+	return false;
+}
+
+bool class__has_flexible_array(struct class *class, const struct cu *cu)
+{
+	if (!class->flexible_array_verified) {
+		class->has_flexible_array = __class__has_flexible_array(class, cu);
+		class->flexible_array_verified = true;
+	}
+
+	return class->has_flexible_array;
 }
 
 const struct class_member *class__find_bit_hole(const struct class *class,
@@ -1515,7 +1610,7 @@ void class__find_holes(struct class *class)
 	type__for_each_member(ctype, pos) {
 		/* XXX for now just skip these */
 		if (pos->tag.tag == DW_TAG_inheritance &&
-		    pos->virtuality == DW_VIRTUALITY_virtual)
+		   (pos->virtuality == DW_VIRTUALITY_virtual || pos->byte_size == 0))
 			continue;
 
 		if (pos->is_static)
@@ -1604,6 +1699,50 @@ void class__find_holes(struct class *class)
 	class->padding = ctype->size - last_seen_bit / 8;
 
 	class->holes_searched = true;
+}
+
+bool class__has_embedded_flexible_array(struct class *cls, const struct cu *cu)
+{
+	struct type *ctype = &cls->type;
+	struct class_member *pos;
+
+	if (!tag__is_struct(class__tag(cls)))
+		return false;
+
+	if (cls->embedded_flexible_array_searched)
+		return cls->has_embedded_flexible_array;
+
+	type__for_each_member(ctype, pos) {
+		/* XXX for now just skip these */
+		if (pos->tag.tag == DW_TAG_inheritance &&
+		    pos->virtuality == DW_VIRTUALITY_virtual)
+			continue;
+
+		if (pos->is_static)
+			continue;
+
+		struct tag *member_type = tag__strip_typedefs_and_modifiers(&pos->tag, cu);
+		if (member_type == NULL)
+			continue;
+
+		if (!tag__is_struct(member_type))
+			continue;
+
+		cls->has_embedded_flexible_array = class__has_flexible_array(tag__class(member_type), cu);
+		if (cls->has_embedded_flexible_array)
+			break;
+
+		if (member_type == class__tag(cls))
+			continue;
+
+		cls->has_embedded_flexible_array = class__has_embedded_flexible_array(tag__class(member_type), cu);
+		if (cls->has_embedded_flexible_array)
+			break;
+	}
+
+	cls->embedded_flexible_array_searched = true;
+
+	return cls->has_embedded_flexible_array;
 }
 
 static size_t type__natural_alignment(struct type *type, const struct cu *cu);
@@ -1955,7 +2094,7 @@ static int list__for_all_tags(struct list_head *list, struct cu *cu,
 			 * enumerators (enum entries) are shared, but the
 			 * enumeration tag must be deleted.
 			 */
-			if (!space->shared_tags &&
+			if (!namespace__shared_tags(space) &&
 			    list__for_all_tags(&space->tags, cu,
 					       iterator, cookie))
 				return 1;
@@ -2266,9 +2405,7 @@ int cus__load_file(struct cus *cus, struct conf_load *conf,
 #define DW_LANG_BLISS		0x0025
 #endif
 
-int lang__str2int(const char *lang)
-{
-	static const char *languages[] = {
+static const char *languages[] = {
 	[DW_LANG_Ada83]		 = "ada83",
 	[DW_LANG_Ada95]		 = "ada95",
 	[DW_LANG_BLISS]		 = "bliss",
@@ -2306,8 +2443,22 @@ int lang__str2int(const char *lang)
 	[DW_LANG_Rust]		 = "rust",
 	[DW_LANG_Swift]		 = "swift",
 	[DW_LANG_UPC]		 = "upc",
-	};
+};
 
+const char *lang__int2str(int id)
+{
+	const char *lang = NULL;
+
+	if (id < ARRAY_SIZE(languages))
+		lang = languages[id];
+	else if (id == DW_LANG_Mips_Assembler)
+		return "asm";
+
+	return lang ?: "UNKNOWN";
+}
+
+int lang__str2int(const char *lang)
+{
 	if (strcasecmp(lang, "asm") == 0)
 		return DW_LANG_Mips_Assembler;
 
@@ -2319,6 +2470,102 @@ int lang__str2int(const char *lang)
 	return -1;
 }
 
+static int lang_id_cmp(const void *pa, const void *pb)
+{
+	int a = *(int *)pa,
+	    b = *(int *)pb;
+	return a - b;
+}
+
+int languages__parse(struct languages *languages, const char *tool)
+{
+	int nr_allocated = 4;
+	char *lang = languages->str;
+
+	languages->entries = zalloc(sizeof(int) * nr_allocated);
+	if (languages->entries == NULL)
+		goto out_enomem;
+
+	while (1) {
+		char *sep = strchr(lang, ',');
+
+		if (sep)
+			*sep = '\0';
+
+		int id = lang__str2int(lang);
+
+		if (sep)
+			*sep = ',';
+
+		if (id < 0) {
+			fprintf(stderr, "%s: unknown language \"%s\"\n", tool, lang);
+			goto out_free;
+		}
+
+		if (languages->nr_entries >= nr_allocated) {
+			nr_allocated *= 2;
+			int *entries = realloc(languages->entries, nr_allocated);
+
+			if (entries == NULL)
+				goto out_enomem;
+
+			languages->entries = entries;
+		}
+
+		languages->entries[languages->nr_entries++] = id;
+
+		if (!sep)
+			break;
+
+		lang = sep + 1;
+	}
+
+	qsort(languages->entries, languages->nr_entries, sizeof(int), lang_id_cmp);
+
+	return 0;
+out_enomem:
+	fprintf(stderr, "%s: not enough memory to parse --lang\n", tool);
+out_free:
+	zfree(&languages->entries);
+	languages->nr_entries = 0;
+	return -1;
+}
+
+bool languages__in(struct languages *languages, int lang)
+{
+	return bsearch(&lang, languages->entries, languages->nr_entries, sizeof(int), lang_id_cmp) != NULL;
+}
+
+int languages__init(struct languages *languages, const char *tool)
+{
+	if (languages->str == NULL) { // use PAHOLE_ as the namespace for all these tools
+		languages->str = getenv("PAHOLE_LANG_EXCLUDE");
+
+		if (languages->str == NULL)
+			return 0;
+
+		languages->exclude = true;
+	}
+
+	return languages__parse(languages, tool);
+}
+
+bool languages__cu_filtered(struct languages *languages, struct cu *cu, bool verbose)
+{
+	if (languages->nr_entries == 0)
+		return false;
+
+	bool in = languages__in(languages, cu->language);
+
+	if ((!in && !languages->exclude) ||
+	    (in && languages->exclude)) {
+		if (verbose)
+			printf("Filtering CU %s written in %s.\n", cu->name, lang__int2str(cu->language));
+		return true;
+	}
+
+	return false;
+}
 
 static int sysfs__read_build_id(const char *filename, void *build_id, size_t size)
 {
@@ -2524,6 +2771,19 @@ static int filename__sprintf_build_id(const char *pathname, char *sbuild_id)
 static int vmlinux_path__nr_entries;
 static char **vmlinux_path;
 
+const char *vmlinux_path__btf_filename(void)
+{
+	static const char *vmlinux_btf;
+
+	if (vmlinux_btf == NULL) {
+		vmlinux_btf = getenv("PAHOLE_VMLINUX_BTF_FILENAME");
+		if (vmlinux_btf == NULL)
+			vmlinux_btf = "/sys/kernel/btf/vmlinux";
+	}
+
+	return vmlinux_btf;
+}
+
 static void vmlinux_path__exit(void)
 {
 	while (--vmlinux_path__nr_entries >= 0)
@@ -2556,6 +2816,23 @@ static int vmlinux_path__add(const char *new_entry)
 	return 0;
 }
 
+static int vmlinux_path__add_debuginfod_client(void)
+{
+	const char *home_dir = getenv("HOME");
+	if (home_dir == NULL)
+		return -1;
+
+	char running_sbuild_id[SBUILD_ID_SIZE];
+
+	if (sysfs__sprintf_build_id(NULL, running_sbuild_id) < 0)
+		return -1;
+
+	char bf[PATH_MAX];
+	snprintf(bf, sizeof(bf), "%s/.cache/debuginfod_client/%s/debuginfo", home_dir, running_sbuild_id);
+
+	return vmlinux_path__add(bf);
+}
+
 static int vmlinux_path__init(void)
 {
 	struct utsname uts;
@@ -2563,8 +2840,9 @@ static int vmlinux_path__init(void)
 	char *kernel_version;
 	unsigned int i;
 
+	// Add 1 for the debuginfod client HOME based cache
 	vmlinux_path = malloc(sizeof(char *) * (ARRAY_SIZE(vmlinux_paths) +
-			      ARRAY_SIZE(vmlinux_paths_upd)));
+						ARRAY_SIZE(vmlinux_paths_upd) + 1));
 	if (vmlinux_path == NULL)
 		return -1;
 
@@ -2583,6 +2861,8 @@ static int vmlinux_path__init(void)
 			goto out_fail;
 	}
 
+	vmlinux_path__add_debuginfod_client();
+
 	return 0;
 
 out_fail:
@@ -2590,13 +2870,55 @@ out_fail:
 	return -1;
 }
 
-static int cus__load_running_kernel(struct cus *cus, struct conf_load *conf)
+static const char *__vmlinux_path__find_running_kernel(void)
 {
-	int i, err = 0;
 	char running_sbuild_id[SBUILD_ID_SIZE];
 
-	if ((!conf || conf->format_path == NULL || strncmp(conf->format_path, "btf", 3) == 0) &&
-	    access("/sys/kernel/btf/vmlinux", R_OK) == 0) {
+	sysfs__sprintf_build_id(NULL, running_sbuild_id);
+
+	for (int i = 0; i < vmlinux_path__nr_entries; ++i) {
+		char sbuild_id[SBUILD_ID_SIZE];
+
+		if (filename__sprintf_build_id(vmlinux_path[i], sbuild_id) > 0 &&
+		    strcmp(sbuild_id, running_sbuild_id) == 0) {
+			return vmlinux_path[i];
+		}
+	}
+
+	return NULL;
+}
+
+const char *vmlinux_path__find_running_kernel(void)
+{
+	elf_version(EV_CURRENT);
+	vmlinux_path__init();
+
+	const char *vmlinux = __vmlinux_path__find_running_kernel();
+
+	if (vmlinux) {
+		// vmlinux_path__exit() will nuke all its entries
+		vmlinux = strdup(vmlinux);
+	}
+
+	vmlinux_path__exit();
+
+	return vmlinux;
+}
+
+static int cus__load_running_kernel(struct cus *cus, struct conf_load *conf)
+{
+	int err = 0;
+	bool btf_only = false;
+
+	if (!conf || conf->format_path == NULL)
+		goto try_btf;
+
+	if (!strstr(conf->format_path, "btf"))
+		goto try_elf;
+
+	btf_only = strcmp(conf->format_path, "btf") == 0;
+try_btf:
+	if (access(vmlinux_path__btf_filename(), R_OK) == 0) {
 		int loader = debugging_formats__loader("btf");
 		if (loader == -1)
 			goto try_elf;
@@ -2604,24 +2926,19 @@ static int cus__load_running_kernel(struct cus *cus, struct conf_load *conf)
 		if (conf && conf->conf_fprintf)
 			conf->conf_fprintf->has_alignment_info = debug_fmt_table[loader]->has_alignment_info;
 
-		if (debug_fmt_table[loader]->load_file(cus, conf, "/sys/kernel/btf/vmlinux") == 0)
+		if (debug_fmt_table[loader]->load_file(cus, conf, vmlinux_path__btf_filename()) == 0)
 			return 0;
 	}
 try_elf:
+	if (btf_only)
+		return -1;
+
 	elf_version(EV_CURRENT);
 	vmlinux_path__init();
 
-	sysfs__sprintf_build_id(NULL, running_sbuild_id);
+	const char *vmlinux = __vmlinux_path__find_running_kernel();
 
-	for (i = 0; i < vmlinux_path__nr_entries; ++i) {
-		char sbuild_id[SBUILD_ID_SIZE];
-
-		if (filename__sprintf_build_id(vmlinux_path[i], sbuild_id) > 0 &&
-		    strcmp(sbuild_id, running_sbuild_id) == 0) {
-			err = cus__load_file(cus, conf, vmlinux_path[i]);
-			break;
-		}
-	}
+	err = cus__load_file(cus, conf, vmlinux);
 
 	vmlinux_path__exit();
 
