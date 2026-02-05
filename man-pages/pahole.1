@@ -75,6 +75,10 @@ struct list_head {
 };
 $
 .fi
+It is possible to override the /sys/kernel/btf/vmlinux file location by setting
+the PAHOLE_VMLINUX_BTF_FILENAME environment variable. This may be useful for
+testing, scripting when using a different BTF for vmlinux. Used in the pahole
+regression tests.
 
 If BTF is not present and no file is passed, then a vmlinux that matches the
 build-id for the running kernel will be looked up in the usual places,
@@ -224,13 +228,23 @@ Find pointers to CLASS_NAME.
 Show only structs with at least NR_HOLES holes.
 
 .TP
+.B \-\-padding=SIZE_PADDING
+Show only structs with SIZE_PADDING bytes of padding at its end.
+
+.TP
+.B \-\-padding_ge=SIZE_PADDING
+Show only structs with at least SIZE_PADDING bytes of padding at its end.
+
+.TP
 .B \-I, \-\-show_decl_info
 Show the file and line number where the tags were defined, if available in
 the debugging information.
 
 .TP
 .B \-\-skip_encoding_btf_vars
-Do not encode VARs in BTF.
+By default, VARs are encoded only for percpu variables. When specified, this
+option prevents encoding any VARs. Note that this option can be overridden
+by the feature "global_var".
 
 .TP
 .B \-\-skip_encoding_btf_decl_tag
@@ -296,7 +310,7 @@ Encode BTF using the specified feature list, or specify 'default' for all standa
 	encode_force       Ignore invalid symbols when encoding BTF; for example
 	                   if a symbol has an invalid name, it will be ignored
 	                   and BTF encoding will continue.
-	var                Encode variables using BTF_KIND_VAR in BTF.
+	var                Encode percpu variables using BTF_KIND_VAR in BTF.
 	float              Encode floating-point types in BTF.
 	decl_tag           Encode declaration tags using BTF_KIND_DECL_TAG.
 	type_tag           Encode type tags using BTF_KIND_TYPE_TAG.
@@ -313,10 +327,16 @@ Encode BTF using the specified feature list, or specify 'default' for all standa
 Supported non-standard features (not enabled for 'default')
 
 .nf
-	reproducible_build Ensure generated BTF is consistent every time;
-	                   without this parallel BTF encoding can result in
-	                   inconsistent BTF ids.
+	attributes         Allow generation of decl_tags and type_tags with
+	                   kind_flag = 1. These tags can be used to encode
+	                   arbitrary compiler attributes in BTF, but are
+	                   backward incompatible.
 	decl_tag_kfuncs    Inject a BTF_KIND_DECL_TAG for each discovered kfunc.
+	distilled_base     For split BTF, generate a distilled version of
+	                   the associated base BTF to support later relocation
+	                   of split BTF with a possibly changed base, storing
+	                   it in a .BTF.base ELF section.
+	global_var         Encode all global variables using BTF_KIND_VAR in BTF.
 .fi
 
 So for example, specifying \-\-btf_encode=var,enum64 will result in a BTF encoding that (as well as encoding basic BTF information) will contain variables and enum64 values.
@@ -334,6 +354,10 @@ Identical to \-\-btf_features above, but pahole will exit if it encounters an un
 .TP
 .B \-\-supported_btf_features
 Show set of BTF features supported by \-\-btf_features option and exit.  Useful for checking which features are supported since \-\-btf_features will not emit an error if an unrecognized feature is specified.
+
+.TP
+.B \-\-running_kernel_vmlinux,
+Search for, possibly getting from a debuginfo server, a vmlinux matching the running kernel build-id (from /sys/kernel/notes).
 
 .TP
 .B \-l, \-\-show_first_biggest_size_base_type_member
@@ -377,6 +401,10 @@ for instance when using the \fB\-\-reorganize\fR option.
 .TP
 .B \-P, \-\-with_flexible_array
 Show only structs that have a flexible array.
+
+.TP
+.B \-P, \-\-with_embedded_flexible_array
+Show only structs that have an embedded flexible array, i.e. a contained struct that has flexible arrays, a flexible array "in the middle".
 
 .TP
 .B \-q, \-\-quiet
@@ -469,6 +497,18 @@ Don't process compilation units built from source code written in the specified 
 To filter out compilation units written in Rust, for instance, use:
 
  pahole -j --btf_encode --lang_exclude rust
+
+This can also be accomplished by setting the environment variable PAHOLE_LANG_EXCLUDE to
+the same list of languages, for instance, the following is equivalent to the above:
+
+ export PAHOLE_LANG_EXCLUDE=rust
+ pahole -j --btf_encode
+
+Meaning in both cases 'rust' CUs will be skipped.
+
+This is useful for scripts where it provides a way to ask for that exclusion
+for pahole and pfunct, no need to use --lang_exclude in all calls to those
+tools, just set that environment variable.
 
 .TP
 .B \-y, \-\-prefix_filter=PREFIX
