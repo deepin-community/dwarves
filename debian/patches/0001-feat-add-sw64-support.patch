@@ -1,0 +1,98 @@
+--- dwarves-1.31.orig/dwarf_loader.c
++++ dwarves-1.31/dwarf_loader.c
+@@ -57,6 +57,10 @@
+ #define EM_RISCV	243
+ #endif
+ 
++#ifndef EM_SW64
++#define EM_SW64 0x9916
++#endif
++
+ static pthread_mutex_t libdw__lock = PTHREAD_MUTEX_INITIALIZER;
+ 
+ static uint32_t hashtags__bits = 12;
+@@ -1043,6 +1047,7 @@ static int arch__nr_register_params(cons
+ 	case EM_MIPS:
+ 	case EM_PPC:
+ 	case EM_PPC64:
++	case EM_SW64:
+ 	case EM_RISCV:	 return 8;
+ 	default:	 break;
+ 	}
+--- dwarves-1.31.orig/lib/bpf/src/bpf.c
++++ dwarves-1.31/lib/bpf/src/bpf.c
+@@ -53,6 +53,8 @@
+ #  define __NR_bpf 351
+ # elif defined(__arc__)
+ #  define __NR_bpf 280
++# elif defined(__sw_64__)
++#  define __NR_bpf 170
+ # elif defined(__mips__) && defined(_ABIO32)
+ #  define __NR_bpf 4355
+ # elif defined(__mips__) && defined(_ABIN32)
+--- dwarves-1.31.orig/lib/bpf/src/bpf_tracing.h
++++ dwarves-1.31/lib/bpf/src/bpf_tracing.h
+@@ -35,6 +35,9 @@
+ #elif defined(__TARGET_ARCH_loongarch)
+ 	#define bpf_target_loongarch
+ 	#define bpf_target_defined
++#elif defined(__TARGET_ARCH_sw_64)
++	#define bpf_target_sw64
++	#define bpf_target_defined
+ #else
+ 
+ /* Fall back to what the compiler says */
+@@ -68,6 +71,9 @@
+ #elif defined(__loongarch__)
+ 	#define bpf_target_loongarch
+ 	#define bpf_target_defined
++#elif defined(__sw_64__)
++	#define bpf_target_sw64
++	#define bpf_target_defined
+ #endif /* no compiler target */
+ 
+ #endif
+@@ -926,4 +932,32 @@ ____##name(struct pt_regs *ctx, ##args)
+ #define BPF_UPROBE(name, args...)  BPF_KPROBE(name, ##args)
+ #define BPF_URETPROBE(name, args...)  BPF_KRETPROBE(name, ##args)
+ 
++#elif defined(bpf_target_sw64)
++
++/* sw64 provides struct user_pt_regs instead of struct pt_regs to userspace */
++#define PT_REGS_SW64 const volatile struct user_pt_regs
++#define __PT_REGS_CAST(x) ((PT_REGS_SW64 *)(x))
++#define __PT_PARM1_REG regs[16]
++#define __PT_PARM2_REG regs[17]
++#define __PT_PARM3_REG regs[18]
++#define __PT_PARM4_REG regs[19]
++#define __PT_PARM5_REG regs[20]
++#define __PT_PARM6_REG regs[21]
++
++/* sw64 does not select ARCH_HAS_SYSCALL_WRAPPER. */
++#define PT_REGS_SYSCALL_REGS(ctx) ctx
++#define __PT_PARM1_SYSCALL_REG __PT_PARM1_REG
++#define __PT_PARM2_SYSCALL_REG __PT_PARM2_REG
++#define __PT_PARM3_SYSCALL_REG __PT_PARM3_REG
++#define __PT_PARM4_SYSCALL_REG __PT_PARM4_REG
++#define __PT_PARM5_SYSCALL_REG __PT_PARM5_REG
++#define __PT_PARM6_SYSCALL_REG __PT_PARM6_REG
++
++/* Works only with CONFIG_FRAME_POINTER */
++#define __PT_RET_REG regs[26]
++#define __PT_FP_REG regs[15]
++#define __PT_RC_REG regs[0]
++#define __PT_SP_REG regs[30]
++#define __PT_IP_REG pc
++
+ #endif
+--- dwarves-1.31.orig/lib/bpf/src/libbpf.c
++++ dwarves-1.31/lib/bpf/src/libbpf.c
+@@ -12029,6 +12029,8 @@ static const char *arch_specific_lib_pat
+ 	return "/lib/arm-linux-gnueabihf";
+ #elif defined(__aarch64__)
+ 	return "/lib/aarch64-linux-gnu";
++#elif defined(__sw_64__)
++	return "/lib/sw_64-linux-gnu";	
+ #elif defined(__mips__) && defined(__MIPSEL__) && _MIPS_SZLONG == 64
+ 	return "/lib/mips64el-linux-gnuabi64";
+ #elif defined(__mips__) && defined(__MIPSEL__) && _MIPS_SZLONG == 32
